@@ -1,0 +1,46 @@
+# Mercado Liebre: API Dart + app web (nginx) conectado a PostgreSQL externo en Coolify.
+#
+# Pensado para Coolify (recurso "Docker Compose"). 
+#   - Ningún servicio publica puertos en el servidor: el proxy de Coolify
+#     (Traefik) ocupa 80/443 y enruta el dominio al servicio "web" por la
+#     red interna. En Coolify asigna el dominio SOLO al servicio "web".
+#   - Variable obligatoria restante (Coolify la pide antes de desplegar):
+#     APP_SECRET_KEY. Ver .env.example.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: servidor/Dockerfile
+    environment:
+      # Conexión directa a tu base de datos PostgreSQL independiente en Coolify
+      DATABASE_URL: postgres://postgres:D3wBpZB8LtvDCPrDoWMvX1TG4YrVdT5pU5vekR4jhNmD5EzBXCO30ybCEzZLzJGV@olnvwfuraw4m5maauwuldus1:5432/postgres
+      DATABASE_SSL: "false"
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?}
+      ADMIN_CORREO: ${ADMIN_CORREO:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      CORS_ORIGEN: ${CORS_ORIGEN:-*}
+      PORT: "5432"
+      APLICAR_ESQUEMA: "true"
+      DATOS_PATH: /app/datos
+    volumes:
+      - datos_api:/app/datos
+    expose:
+      - "5432"
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: cliente/Dockerfile
+      args:
+        API_BASE_URL: same
+    expose:
+      - "80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  datos_api:
