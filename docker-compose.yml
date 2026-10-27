@@ -14,7 +14,7 @@ services:
       dockerfile: servidor/Dockerfile
     environment:
       # Conexión directa a tu base de datos PostgreSQL independiente en Coolify
-      DATABASE_URL: postgres://postgres:D3wBpZB8LtvDCPrDoWMvX1TG4YrVdT5pU5vekR4jhNmD5EzBXCO30ybCEzZLzJGV@olnvwfuraw4m5maauwuldus1:5432/postgres
+      DATABASE_URL: postgres://postgres:D3wBpZB8LtvDCPrDoWMvX1TG4YrVdT5pU5vekR4jhNmD5EzBXCO30ybCEzZLzJGV@5.189.135.239:3000/postgres
       DATABASE_SSL: "false"
       APP_SECRET_KEY: ${APP_SECRET_KEY:?}
       ADMIN_CORREO: ${ADMIN_CORREO:-}
