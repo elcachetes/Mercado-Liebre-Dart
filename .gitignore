@@ -1,0 +1,18 @@
+# Secretos
+.env
+
+# Datos locales de la API (fotos subidas, conexión guardada)
+datos/
+servidor/datos/
+
+# Artefactos
+**/build/
+**/.dart_tool/
+**/.plugin_symlinks/
+**/ephemeral/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+
+# Editores
+**/.idea/
+*.iml

@@ -1,0 +1,35 @@
+# Lo que NO se manda a Docker al construir (contexto = raíz del repo).
+
+# Secretos y datos locales
+**/.env
+datos
+**/datos
+
+# Artefactos y cachés
+.git
+**/.dart_tool
+**/build
+**/ephemeral
+**/.plugin_symlinks
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+
+# Editores
+**/.idea
+**/.vscode
+**/*.iml
+.claude
+
+# Carpetas nativas de Flutter: el build web no las usa
+cliente/android
+cliente/ios
+cliente/windows
+cliente/linux
+cliente/macos
+
+# Documentación
+docs
+*.md
+
+# Scripts de mantenimiento (iconos, etc.)
+herramientas

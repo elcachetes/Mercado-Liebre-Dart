@@ -1,0 +1,6 @@
+analyzer:
+  language:
+    strict-casts: true
+    strict-inference: true
+  errors:
+    unused_import: warning

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <!-- flutter build web reemplaza $FLUTTER_BASE_HREF por el valor de --base-href (por defecto "/"). -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Mercado estudiantil del ITCJ: encuentra comida, productos y servicios dentro del plantel.">
+  <meta name="theme-color" content="#C1121F">
+
+  <!-- iOS -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Mercado Liebre">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="manifest" href="manifest.json">
+  <title>Mercado Liebre</title>
+
+  <style>
+    /* Pantalla de carga mientras se descarga Flutter. Se quita en el primer cuadro. */
+    html, body { margin: 0; height: 100%; background: #C1121F; }
+    #carga {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 20px;
+      color: #fff; font: 600 22px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      transition: opacity .25s ease;
+    }
+    #carga .giro {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 3px solid rgba(255,255,255,.35); border-top-color: #fff;
+      animation: giro .8s linear infinite;
+    }
+    @keyframes giro { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { #carga .giro { animation-duration: 2.4s; } }
+  </style>
+</head>
+<body>
+  <div id="carga" role="status" aria-live="polite">
+    <img src="icons/Icon-192.png" width="112" height="112" alt="">
+    <span>Mercado Liebre</span>
+    <div class="giro" aria-hidden="true"></div>
+  </div>
+  <noscript>Mercado Liebre necesita JavaScript para funcionar.</noscript>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var carga = document.getElementById('carga');
+      if (!carga) return;
+      carga.style.opacity = '0';
+      setTimeout(function () { carga.remove(); }, 300);
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

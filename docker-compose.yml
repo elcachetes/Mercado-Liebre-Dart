@@ -1,0 +1,69 @@
+# Mercado Liebre: PostgreSQL + API Dart + app web (nginx).
+#
+# Pensado para Coolify (recurso "Docker Compose"). Guía completa:
+# docs/DESPLIEGUE.md
+#
+#   - Ningún servicio publica puertos en el servidor: el proxy de Coolify
+#     (Traefik) ocupa 80/443 y enruta el dominio al servicio "web" por la
+#     red interna. En Coolify asigna el dominio SOLO al servicio "web".
+#   - Variables obligatorias (Coolify las pide antes de desplegar):
+#     POSTGRES_PASSWORD y APP_SECRET_KEY. Ver .env.example.
+#   - Para probar en tu máquina: docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mercado
+      # Usa solo letras y números: la contraseña va dentro de DATABASE_URL.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: mercado_liebre
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mercado -d mercado_liebre"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: servidor/Dockerfile
+    environment:
+      DATABASE_URL: postgres://mercado:${POSTGRES_PASSWORD}@postgres:5432/mercado_liebre
+      DATABASE_SSL: "false"
+      APP_SECRET_KEY: ${APP_SECRET_KEY:?}
+      ADMIN_CORREO: ${ADMIN_CORREO:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      CORS_ORIGEN: ${CORS_ORIGEN:-*}
+      PORT: "8080"
+      APLICAR_ESQUEMA: "true"
+      DATOS_PATH: /app/datos
+    volumes:
+      - datos_api:/app/datos
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
+    stop_grace_period: 15s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: cliente/Dockerfile
+      args:
+        API_BASE_URL: same
+    expose:
+      - "80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  datos_api:

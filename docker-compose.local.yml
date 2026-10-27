@@ -1,0 +1,13 @@
+# Solo para tu máquina: publica la app en http://localhost:8080 y
+# PostgreSQL en localhost:5432 (para inspeccionarlo con psql o DBeaver).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+#
+# No uses este archivo en Coolify: ahí el proxy ya expone el servicio web.
+services:
+  web:
+    ports:
+      - "8080:80"
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"

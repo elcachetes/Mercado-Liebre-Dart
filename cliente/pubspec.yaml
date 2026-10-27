@@ -1,0 +1,27 @@
+name: mercado_liebre
+description: Mercado estudiantil del ITCJ. Cliente Flutter multiplataforma.
+publish_to: none
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  file_picker: ^8.1.7
+  http: ^1.2.2
+  shared_preferences: ^2.3.3
+  image: ^4.12.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/mapa_plantel.jpg
+    - assets/icono/icono.png

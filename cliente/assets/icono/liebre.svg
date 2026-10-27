@@ -1,0 +1,87 @@
+<!--
+  Ilustración del icono de Mercado Liebre: una liebre en su puesto del
+  mercado, ofreciendo una zanahoria. Solo el dibujo, sin fondo: el fondo
+  rojo y el recorte (redondeado o cuadrado) los agrega
+  herramientas/generar_iconos.py. Lienzo de 1024×1024.
+-->
+<g xmlns="http://www.w3.org/2000/svg" id="dibujo">
+  <!-- Postes del puesto -->
+  <rect x="168" y="300" width="34" height="440" rx="10" fill="#F6E3C6"/>
+  <rect x="822" y="300" width="34" height="440" rx="10" fill="#F6E3C6"/>
+
+  <!-- Toldo: barra superior, franjas y festón -->
+  <rect x="120" y="150" width="784" height="46" rx="23" fill="#FFFFFF"/>
+  <g>
+    <rect x="132" y="190" width="127" height="130" fill="#FFFFFF"/>
+    <rect x="259" y="190" width="127" height="130" fill="#FFC93C"/>
+    <rect x="386" y="190" width="127" height="130" fill="#FFFFFF"/>
+    <rect x="513" y="190" width="127" height="130" fill="#FFC93C"/>
+    <rect x="640" y="190" width="127" height="130" fill="#FFFFFF"/>
+    <rect x="767" y="190" width="125" height="130" fill="#FFC93C"/>
+    <circle cx="195.5" cy="320" r="63.5" fill="#FFFFFF"/>
+    <circle cx="322.5" cy="320" r="63.5" fill="#FFC93C"/>
+    <circle cx="449.5" cy="320" r="63.5" fill="#FFFFFF"/>
+    <circle cx="576.5" cy="320" r="63.5" fill="#FFC93C"/>
+    <circle cx="703.5" cy="320" r="63.5" fill="#FFFFFF"/>
+    <circle cx="829.5" cy="320" r="62.5" fill="#FFC93C"/>
+  </g>
+
+  <!-- Orejas -->
+  <g transform="rotate(-12 450 400)">
+    <ellipse cx="450" cy="400" rx="46" ry="180" fill="#D9B48C"/>
+    <ellipse cx="450" cy="410" rx="22" ry="146" fill="#F4A3B4"/>
+    <ellipse cx="450" cy="236" rx="30" ry="26" fill="#3B2A22"/>
+  </g>
+  <g transform="rotate(22 586 420)">
+    <ellipse cx="586" cy="420" rx="46" ry="170" fill="#C9A076"/>
+    <ellipse cx="586" cy="430" rx="22" ry="136" fill="#F4A3B4"/>
+    <ellipse cx="586" cy="266" rx="30" ry="26" fill="#3B2A22"/>
+  </g>
+
+  <!-- Cuerpo y cabeza -->
+  <ellipse cx="512" cy="730" rx="150" ry="110" fill="#D9B48C"/>
+  <circle cx="512" cy="590" r="128" fill="#D9B48C"/>
+  <ellipse cx="512" cy="648" rx="70" ry="50" fill="#F7E8D3"/>
+  <ellipse cx="512" cy="742" rx="88" ry="70" fill="#F7E8D3"/>
+
+  <!-- Cara -->
+  <circle cx="462" cy="574" r="17" fill="#2B1B17"/>
+  <circle cx="562" cy="574" r="17" fill="#2B1B17"/>
+  <circle cx="468" cy="567" r="6" fill="#FFFFFF"/>
+  <circle cx="568" cy="567" r="6" fill="#FFFFFF"/>
+  <circle cx="428" cy="622" r="20" fill="#F4A3B4" opacity="0.7"/>
+  <circle cx="596" cy="622" r="20" fill="#F4A3B4" opacity="0.7"/>
+  <ellipse cx="512" cy="622" rx="17" ry="12" fill="#E5788A"/>
+  <path d="M512 634 v14 M512 648 q-16 16 -30 4 M512 648 q16 16 30 4"
+        stroke="#2B1B17" stroke-width="6" fill="none" stroke-linecap="round"/>
+  <g stroke="#8C6A4A" stroke-width="5" stroke-linecap="round">
+    <line x1="452" y1="640" x2="392" y2="628"/>
+    <line x1="452" y1="652" x2="394" y2="656"/>
+    <line x1="572" y1="640" x2="632" y2="628"/>
+    <line x1="572" y1="652" x2="630" y2="656"/>
+  </g>
+
+  <!-- Mostrador -->
+  <rect x="140" y="760" width="744" height="44" rx="18" fill="#F6E3C6"/>
+  <rect x="160" y="800" width="704" height="110" rx="12" fill="#FFFFFF"/>
+  <rect x="160" y="836" width="704" height="22" fill="#E63946"/>
+
+  <!-- Canasta de naranjas -->
+  <circle cx="262" cy="728" r="30" fill="#FF9F1C"/>
+  <circle cx="318" cy="722" r="30" fill="#FFB347"/>
+  <circle cx="290" cy="700" r="28" fill="#FF9F1C"/>
+  <path d="M220 734 h140 l-14 40 h-112 z" fill="#B5763A"/>
+  <path d="M232 750 h116" stroke="#8F5A2A" stroke-width="6"/>
+
+  <!-- Zanahoria en la pata derecha -->
+  <g transform="translate(-6 46) rotate(28 700 650)">
+    <path d="M676 590 q24 -10 48 0 l-24 150 z" fill="#FF7A1A"/>
+    <path d="M690 620 h22 M694 650 h16 M698 680 h10" stroke="#E0600A" stroke-width="5" stroke-linecap="round"/>
+    <path d="M700 590 q-26 -40 -10 -70 q8 30 10 40 q4 -36 24 -50 q-6 36 -14 56 q22 -20 44 -16 q-28 18 -54 40 z" fill="#3FA34D"/>
+  </g>
+
+  <!-- Patas sobre el mostrador -->
+  <ellipse cx="432" cy="770" rx="44" ry="28" fill="#D9B48C"/>
+  <ellipse cx="664" cy="748" rx="40" ry="30" fill="#D9B48C"/>
+  <path d="M414 770 v14 M432 772 v14 M450 770 v14" stroke="#B48A62" stroke-width="5" stroke-linecap="round"/>
+</g>
