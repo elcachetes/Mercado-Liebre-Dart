@@ -86,12 +86,11 @@ Guía paso a paso para **Ubuntu Server 22.04 + Coolify**:
 
 | Variable            | Obligatoria | Uso                                                                 |
 |---------------------|-------------|---------------------------------------------------------------------|
-| `POSTGRES_PASSWORD` | Sí          | Contraseña de PostgreSQL. Solo letras y números.                    |
+| `DATABASE_URL`      | Sí          | URL de PostgreSQL. En Coolify, la *Postgres URL (internal)* del recurso de base. Nunca en el repositorio. |
 | `APP_SECRET_KEY`    | Sí          | Firma de los tokens. ≥ 16 caracteres (`openssl rand -hex 32`).      |
 | `ADMIN_CORREO`      | No          | Crea esta cuenta admin al arrancar si no existe.                    |
 | `ADMIN_PASSWORD`    | No          | Contraseña de esa cuenta (≥ 8 caracteres).                          |
 | `CORS_ORIGEN`       | No          | Origen permitido si otra web llama a la API. `*` por defecto.       |
-| `DATABASE_URL`      | Solo local  | La arma docker-compose; úsala solo con `dart run` fuera de Docker.  |
 | `DATABASE_SSL`      | No          | `true` si la base exige SSL (bases administradas externas).         |
 | `APLICAR_ESQUEMA`   | No          | `true` por defecto: ejecuta `db/schema.sql` en cada arranque.       |
 | `DATOS_PATH`        | No          | Carpeta de fotos subidas y conexión guardada. `/app/datos` en Docker.|

@@ -4,11 +4,12 @@ Resultado final: la app en `https://mercado.tudominio.com`, con HTTPS
 automático, PostgreSQL con datos persistentes y redespliegue con cada `git push`.
 
 ```
-Internet ──443──▶ Coolify (Traefik, HTTPS) ──▶ web:80 (nginx) ──/api──▶ api:8080 ──▶ postgres:5432
+Internet ──443──▶ Coolify (Traefik, HTTPS) ──▶ web:80 (nginx) ──/api──▶ api:8080 ──▶ <uuid-de-la-base>:5432
 ```
 
-Solo el servicio `web` recibe tráfico de fuera. `api` y `postgres` viven en la
-red interna del compose.
+Solo el servicio `web` recibe tráfico de fuera. `api` vive en la red interna
+del compose. PostgreSQL es un recurso **PostgreSQL** aparte de Coolify y la API
+lo alcanza por la red interna de Docker (`coolify`), nunca por la IP pública.
 
 ---
 
@@ -81,34 +82,40 @@ git push -u origin main
 
 Verifica que `.env` **no** aparezca en `git status` (está en `.gitignore`).
 
-## 4. Crear el recurso en Coolify
+## 4. Crear los recursos en Coolify
 
 1. **Projects → + Add → New Project** (por ejemplo, "Mercado Liebre").
-2. Dentro del proyecto: **+ New → Resource**.
+2. **Base de datos:** dentro del proyecto, **+ New → Resource → PostgreSQL**.
+   Arráncala y copia su **Postgres URL (internal)**. Tiene esta forma:
+   `postgres://postgres:CLAVE@<uuid-del-recurso>:5432/postgres`.
+   No actives *Make it publicly available*: la API no la necesita.
+3. **App:** dentro del proyecto, **+ New → Resource**.
    - Repositorio público: **Public Repository** y pega la URL.
    - Privado: **Private Repository (with GitHub App)** o **(with Deploy Key)**.
-3. **Build Pack:** `Docker Compose`.
-4. **Branch:** `main`. **Docker Compose Location:** `/docker-compose.yml`.
-5. Coolify lee el compose y muestra tres servicios: `postgres`, `api`, `web`.
+   - **Build Pack:** `Docker Compose`.
+   - **Branch:** `main`. **Docker Compose Location:** `/docker-compose.yml`.
+   - Coolify lee el compose y muestra dos servicios: `api` y `web`.
+4. En la configuración del recurso de la app activa **Connect To Predefined
+   Network**. Sin esto la API no resuelve el nombre `<uuid-del-recurso>` de la
+   base y el arranque falla con un error de conexión.
 
 ### 4.1 Variables de entorno
 
-Pestaña **Environment Variables** del recurso:
+Pestaña **Environment Variables** del recurso de la app:
 
 | Variable            | Valor                                                                 |
 |---------------------|-----------------------------------------------------------------------|
-| `POSTGRES_PASSWORD` | Solo letras y números, 24+ caracteres. Ej.: `openssl rand -hex 24`    |
+| `DATABASE_URL`      | La *Postgres URL (internal)* del paso 2                               |
 | `APP_SECRET_KEY`    | `openssl rand -hex 32`                                                |
 | `ADMIN_CORREO`      | Correo del primer administrador                                       |
 | `ADMIN_PASSWORD`    | Contraseña de ese administrador (8+ caracteres)                       |
 
-Marca `POSTGRES_PASSWORD`, `APP_SECRET_KEY` y `ADMIN_PASSWORD` como
+Marca `DATABASE_URL`, `APP_SECRET_KEY` y `ADMIN_PASSWORD` como
 **secretas** (no se mostrarán en logs).
 
-> **No cambies `POSTGRES_PASSWORD` después del primer despliegue.** PostgreSQL
-> solo la lee al crear el volumen; si la cambias, la API no podrá entrar.
-> Para rotarla, cámbiala dentro de la base (`ALTER USER mercado PASSWORD '…'`)
-> y luego en Coolify.
+> **Nunca escribas `DATABASE_URL` en `docker-compose.yml`** ni en otro archivo
+> del repositorio: lleva la contraseña. Si llegó a subirse a Git, cambia la
+> contraseña en el recurso PostgreSQL y actualiza `DATABASE_URL` aquí.
 
 ### 4.2 Dominio
 
@@ -118,7 +125,7 @@ En la lista de servicios, abre **web → Settings → Domains** y escribe:
 https://mercado.tudominio.com
 ```
 
-No asignes dominio a `api` ni a `postgres`. Coolify pedirá el certificado de
+No asignes dominio a `api` ni a la base. Coolify pedirá el certificado de
 Let's Encrypt automáticamente.
 
 ### 4.3 Desplegar
@@ -148,36 +155,27 @@ curl https://mercado.tudominio.com/salud          # {"estado":"ok"}
 curl https://mercado.tudominio.com/api/apariencia  # JSON con el título
 ```
 
-Los tres servicios deben aparecer **Running (healthy)** en Coolify.
+Los servicios `api` y `web` y el recurso PostgreSQL deben aparecer
+**Running (healthy)** en Coolify.
 
-## 6. Respaldos de la base
+## 6. Respaldos
 
-El PostgreSQL de este compose no es una "base administrada" de Coolify, así
-que el respaldo se hace con `pg_dump` desde el servidor:
+La base es un recurso PostgreSQL de Coolify: programa sus respaldos en la
+pestaña **Backups** de ese recurso (local o S3).
+
+Respaldo manual con `pg_dump` desde el servidor:
 
 ```bash
-# Nombre real del contenedor (Coolify le agrega un sufijo):
-docker ps --filter "name=postgres" --format "{{.Names}}"
-
-# Respaldo manual
-docker exec NOMBRE_CONTENEDOR pg_dump -U mercado -d mercado_liebre -Fc > respaldo_$(date +%F).dump
+# El contenedor de la base se llama como el uuid del recurso:
+docker exec <uuid-del-recurso> pg_dump -U postgres -d postgres -Fc > respaldo_$(date +%F).dump
 
 # Restaurar
-docker exec -i NOMBRE_CONTENEDOR pg_restore -U mercado -d mercado_liebre --clean < respaldo_2026-01-01.dump
+docker exec -i <uuid-del-recurso> pg_restore -U postgres -d postgres --clean < respaldo_2026-01-01.dump
 ```
 
-Respaldo diario a las 3 a. m. guardando 14 días (`crontab -e` como root):
-
-```cron
-0 3 * * * C=$(docker ps -qf "name=postgres" | head -1) && docker exec $C pg_dump -U mercado -d mercado_liebre -Fc > /root/respaldos/mercado_$(date +\%F).dump && find /root/respaldos -name '*.dump' -mtime +14 -delete
-```
-
-(Crea antes la carpeta: `mkdir -p /root/respaldos`.) Las fotos subidas viven
-en el volumen `datos_api`; respáldalo igual con `docker run --rm -v NOMBRE_VOLUMEN:/d -v /root/respaldos:/r alpine tar czf /r/medios_$(date +%F).tgz -C /d .`
-
-Si prefieres respaldos desde el panel de Coolify (con S3), crea la base como
-recurso **PostgreSQL** de Coolify, borra el servicio `postgres` del compose y
-cambia `DATABASE_URL` en `api` por la URL interna que Coolify te muestre.
+Las fotos subidas viven en el volumen `datos_api`, que no entra en los
+respaldos de la base. Respáldalo con
+`docker run --rm -v NOMBRE_VOLUMEN:/d -v /root/respaldos:/r alpine tar czf /r/medios_$(date +%F).tgz -C /d .`
 
 ## 7. Problemas comunes
 
@@ -185,8 +183,10 @@ cambia `DATABASE_URL` en `api` por la URL interna que Coolify te muestre.
 |---------|------------------|
 | Build de `web` termina en `Killed` o `exit code 137` | Falta memoria. Agrega swap (1.3) o usa un servidor de 4 GB. |
 | `api` reinicia con `Falta DATABASE_URL` o `APP_SECRET_KEY debe tener…` | Faltan variables en Coolify (4.1). |
-| `api` no conecta: `password authentication failed` | Cambiaste `POSTGRES_PASSWORD` después de crear el volumen. Ver nota en 4.1. |
-| 502 Bad Gateway en `/api/...` | `api` no está sana. Revisa sus logs; `web` reenvía a `api:8080`. |
+| `api` no conecta: `password authentication failed` | La contraseña de `DATABASE_URL` no es la del recurso PostgreSQL. Cópiala de nuevo de su *Postgres URL (internal)*. |
+| `api` no conecta: `Failed host lookup` o `SocketException` | Falta **Connect To Predefined Network** (paso 4), o `DATABASE_URL` usa la IP pública en vez del host interno. |
+| La API ignora el `DATABASE_URL` nuevo | Un admin guardó otra conexión desde el panel (`/app/datos/conexion.json`, que tiene prioridad). Usa *Restaurar la del entorno* en el panel o borra ese archivo y reinicia `api`. |
+| 502 Bad Gateway en `/api/...` y `/salud` | `api` no está sana o no escucha en 8080. Revisa sus logs; `web` reenvía a `api:8080`, así que `PORT` debe ser `8080`. |
 | `Permission denied` al subir fotos tras actualizar | El volumen `datos_api` se creó cuando la API corría como root. Una sola vez: `docker run --rm -v NOMBRE_VOLUMEN_DATOS:/d alpine chown -R 10001 /d` y reinicia `api`. |
 | La app muestra la versión vieja tras desplegar | Recarga forzada (Ctrl+Shift+R). `index.html` y `main.dart.js` se sirven con `no-cache`, así que basta una recarga. |
 | El certificado HTTPS no se emite | El DNS aún no apunta al servidor, o los puertos 80/443 están cerrados. |
