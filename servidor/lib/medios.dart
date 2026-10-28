@@ -10,7 +10,8 @@ class Medios {
   /// Carpeta de los archivos servidos en `/medios/`.
   final Directory directorio;
 
-  static const int _maximoBytes = 1500000;
+  /// Tamaño máximo de una imagen subida (fotos, medios y adjuntos de reportes).
+  static const int maximoBytes = 1500000;
 
   /// Guarda bytes de imagen y devuelve la ruta pública `/medios/archivo`.
   Future<String> guardar(String nombreOriginal, String datosBase64) async {
@@ -21,7 +22,7 @@ class Medios {
     } on FormatException {
       throw const FormatException('La imagen no viene en base64.');
     }
-    if (bytes.length > _maximoBytes) {
+    if (bytes.length > maximoBytes) {
       throw const FormatException('La imagen supera 1.5 MB.');
     }
     final extension = _extension(nombreOriginal);

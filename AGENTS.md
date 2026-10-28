@@ -33,19 +33,26 @@ servidor/
   lib/contrasena.dart    Hash PBKDF2 (compatible con la app Python anterior; no cambiar iteraciones).
   lib/token_sesion.dart  Token HS256 de 7 días.
   lib/medios.dart        Fotos subidas por el admin en DATOS_PATH/medios.
+  lib/correo.dart        SMTP (Zoho): correo de verificación y de reportes. Config en ConfiguracionCorreo.
+  lib/reportes.dart      Validación de POST /api/reportes (contacto, descripción, foto).
 cliente/lib/
   main.dart              Raíz: ListenableBuilder sobre EstadoApp, tema claro/oscuro.
   configuracion.dart     API_BASE_URL (dart-define). "same" = mismo dominio (producción).
   servicios/api.dart     ClienteApi: un método por endpoint. Todo error → ErrorApi.
   servicios/estado.dart  EstadoApp (ChangeNotifier): sesión, tema, apariencia, favoritos.
   modelos/modelos.dart   Usuario, Vendedor, Producto, Calificacion, Apariencia, Aviso… con fromJson.
-  pantallas/             Una pantalla por archivo. marco.dart = navegación y pestañas.
+  pantallas/             Una pantalla por archivo. marco.dart = barra roja con las pestañas,
+                         botón Reportar, menú de la cuenta y barra lateral de publicidad.
+  pantallas/perfil_pantalla.dart  SeccionCuenta: cada opción del menú del nombre es una página.
   widgets/comunes.dart   mostrarAviso, intentar, confirmar, EstadoVacio, TituloSeccion, ImagenRed, Estrellas.
   widgets/comunes.dart   (también LogoLiebre: el icono de la app dentro de la interfaz)
   widgets/tarjeta_vendedor.dart  Tarjeta de negocio + iconoCategoria + ubicacionDe.
   widgets/tarjeta_producto.dart  TarjetaProducto y MiniaturaProducto (foto o icono).
   widgets/datos_opcionales.dart  CamposOpcionales (teléfono, nº de control, carrera), carrerasItcj, ValidarOpcional.
   widgets/selector_dias.dart     SelectorDias + diasDesdeTexto/textoDeDias ("Lun-Vie", "Lun, Mié, Vie").
+  widgets/publicidad.dart        BarraPublicidad (dos anuncios) y EspacioPublicitario.
+  widgets/reporte_dialogo.dart   mostrarReporte: formulario de fallas, quejas y sugerencias.
+  widgets/verificacion.dart      AvisoVerificacion: "verifica tu correo" con reenviar.
   servicios/imagenes.dart        comprimirFoto: reduce fotos a 1280 px JPEG antes de subirlas.
   pantallas/busqueda_pantalla.dart  Incluye OrdenBusqueda y ordenarResultados (orden en el cliente).
   tema/tema_liebre.dart  ColoresLiebre (marca), Espacio (separaciones), temaLiebre().
@@ -88,7 +95,9 @@ herramientas/            Scripts de mantenimiento (generar_iconos.py).
 | Una ruta                                          | `rutas.dart`, método en `ClienteApi` y [docs/API.md](docs/API.md).      |
 | Roles o categorías                                | Enums `user_role` / `seller_category` en `schema.sql`, validación en `Repositorio._crearCuenta`, listas en `sesion_dialogo.dart` (`categoriasNegocio`) y `panel_admin.dart`. |
 | Validación de teléfono / nº de control            | `Repositorio._datosOpcionales` (servidor) y `ValidarOpcional` (cliente). |
-| Límite de tamaño de imagen (1.5 MB)               | `Medios._maximoBytes`, `panel_admin.dart` y `comprimirFoto` (1280 px). |
+| Límite de tamaño de imagen (1.5 MB)               | `Medios.maximoBytes` (también lo usa `Reporte`), `panel_admin.dart` y `comprimirFoto` (1280 px). |
+| Regla del contacto de un reporte                  | `Reporte._contactoValido` (servidor) y `validarContactoReporte` (cliente). |
+| Largo de la descripción de un reporte (1000)      | `Reporte.maximoDescripcion` y `maximoDescripcionReporte`.               |
 | El dibujo del icono                               | Edita `cliente/assets/icono/liebre.svg` y corre `python herramientas/generar_iconos.py` (necesita Edge y Pillow). Regenera web, Android, iOS, Windows y el logo interno. |
 | `iteracionesContrasena`                           | **No lo cambies**: invalidaría todas las contraseñas guardadas.         |
 
@@ -128,3 +137,7 @@ Usa `ListView` con `padding: EdgeInsets.all(Espacio.l)`, títulos con
 - `/medios/<archivo>` valida el nombre con una expresión regular (sin `/` ni `..`).
 - La API nunca imprime `DATABASE_URL` ni contraseñas en logs.
 - `.env` y `datos/` están en `.gitignore` y `.dockerignore`.
+- `SMTP_PASSWORD` solo vive en el entorno (Coolify). Nunca en el repositorio ni en logs.
+- El enlace de verificación se firma con una llave derivada (`APP_SECRET_KEY|verificar-correo`):
+  un token de sesión no sirve para verificar ni viceversa.
+- Las rutas que envían correo tienen límite en memoria (`_Limite` en `rutas.dart`).

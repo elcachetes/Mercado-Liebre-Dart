@@ -84,10 +84,20 @@ class EstadoApp extends ChangeNotifier {
     await _guardar(sesion.token, sesion.usuario);
   }
 
-  /// Crea la cuenta y entra.
-  Future<void> registrar(Map<String, dynamic> datos) async {
+  /// Crea la cuenta y entra. Devuelve si se envió el correo de verificación.
+  Future<bool> registrar(Map<String, dynamic> datos) async {
     final sesion = await api.registrar(datos);
     await _guardar(sesion.token, sesion.usuario);
+    return sesion.correoEnviado;
+  }
+
+  /// Vuelve a leer la cuenta, por ejemplo después de abrir el enlace de verificación.
+  Future<void> refrescarUsuario() async {
+    if (usuario == null) {
+      return;
+    }
+    usuario = await api.yo();
+    notifyListeners();
   }
 
   /// Cambia a oscuro si ahora se ve claro, y viceversa. [actual] es el brillo en pantalla.

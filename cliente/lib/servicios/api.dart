@@ -57,12 +57,36 @@ class ClienteApi {
   }
 
   /// Crea la cuenta y deja la sesión iniciada.
-  Future<({String token, Usuario usuario})> registrar(Map<String, dynamic> datos) async {
-    return _sesion(await _objeto('POST', '/api/usuarios', datos));
+  ///
+  /// [correoEnviado] dice si el servidor pudo mandar el enlace de verificación.
+  Future<({String token, Usuario usuario, bool correoEnviado})> registrar(Map<String, dynamic> datos) async {
+    final respuesta = await _objeto('POST', '/api/usuarios', datos);
+    final sesion = _sesion(respuesta);
+    return (token: sesion.token, usuario: sesion.usuario, correoEnviado: respuesta['correoEnviado'] == true);
   }
 
   /// Recupera la cuenta del token guardado.
   Future<Usuario> yo() async => Usuario.fromJson(await _objeto('GET', '/api/yo'));
+
+  /// Pide otro correo de verificación para la cuenta de la sesión.
+  Future<void> reenviarVerificacion() async {
+    await _objeto('POST', '/api/yo/verificacion');
+  }
+
+  /// Envía un reporte de falla, queja o sugerencia a la administración.
+  ///
+  /// [contacto] es un correo o número de control. [foto] es opcional y va en base64.
+  Future<void> enviarReporte({
+    required String contacto,
+    required String descripcion,
+    ({String nombre, String datos})? foto,
+  }) async {
+    await _objeto('POST', '/api/reportes', {
+      'contacto': contacto,
+      'descripcion': descripcion,
+      if (foto != null) 'foto': {'nombre': foto.nombre, 'datos': foto.datos},
+    });
+  }
 
   /// Cambia teléfono, número de control y carrera. Vacío borra el dato.
   Future<Usuario> actualizarPerfil({String? telefono, String? numeroControl, String? carrera}) async {

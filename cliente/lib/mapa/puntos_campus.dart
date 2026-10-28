@@ -10,6 +10,10 @@ const int imagenAncho = 1024;
 /// Alto de la imagen del plano, en píxeles.
 const int imagenAlto = 549;
 
+/// Ancho del dibujo del plantel dentro de la imagen. A la derecha está la
+/// leyenda impresa, que la app no muestra: la dibuja como texto.
+const int dibujoAncho = 500;
+
 /// Rectángulo de un edificio o de una línea de la leyenda.
 class RectPlano {
   /// Coordenadas en píxeles de la imagen, origen arriba a la izquierda.

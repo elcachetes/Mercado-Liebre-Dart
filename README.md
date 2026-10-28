@@ -91,6 +91,12 @@ Guía paso a paso para **Ubuntu Server 22.04 + Coolify**:
 | `ADMIN_CORREO`      | No          | Crea esta cuenta admin al arrancar si no existe.                    |
 | `ADMIN_PASSWORD`    | No          | Contraseña de esa cuenta (≥ 8 caracteres).                          |
 | `CORS_ORIGEN`       | No          | Origen permitido si otra web llama a la API. `*` por defecto.       |
+| `SMTP_USUARIO`      | Para correo | Cuenta que envía (`no.reply@…`). Sin ella no hay verificación ni reportes. |
+| `SMTP_PASSWORD`     | Para correo | Contraseña de esa cuenta. Solo en Coolify, como secreta.            |
+| `SMTP_HOST` / `SMTP_PUERTO` | No  | `smtppro.zoho.com` y `465` (SSL) por defecto; `587` usa STARTTLS.   |
+| `CORREO_REPORTES`   | No          | Buzón que recibe los reportes de fallas, quejas y sugerencias.      |
+| `CORREO_REMITENTE`  | No          | Dirección "De:" si es distinta de `SMTP_USUARIO`.                   |
+| `URL_PUBLICA`       | No          | Origen de los enlaces de verificación. Vacío: el dominio de la petición. |
 | `DATABASE_SSL`      | No          | `true` si la base exige SSL (bases administradas externas).         |
 | `APLICAR_ESQUEMA`   | No          | `true` por defecto: ejecuta `db/schema.sql` en cada arranque.       |
 | `DATOS_PATH`        | No          | Carpeta de fotos subidas y conexión guardada. `/app/datos` en Docker.|

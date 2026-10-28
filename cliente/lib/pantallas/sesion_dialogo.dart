@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../servicios/api.dart';
 import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
+import '../widgets/comunes.dart';
 import '../widgets/datos_opcionales.dart';
 
 /// Muestra el formulario de entrada o de registro.
@@ -81,8 +82,9 @@ class _FormularioSesionState extends State<_FormularioSesion> {
       _error = null;
     });
     try {
+      String? aviso;
       if (_registro) {
-        await widget.estado.registrar({
+        final enviado = await widget.estado.registrar({
           'nombre': _nombre.text,
           'apellido': _apellido.text,
           'correo': _correo.text,
@@ -94,11 +96,18 @@ class _FormularioSesionState extends State<_FormularioSesion> {
           if (_vendedor) 'nombreNegocio': _negocio.text,
           if (_vendedor) 'categoria': _categoria,
         });
+        // Sin verificar el correo la cuenta no califica ni comenta.
+        aviso = enviado
+            ? 'Cuenta creada. Te enviamos un enlace a ${_correo.text.trim()} para verificar tu correo.'
+            : 'Cuenta creada, pero no pudimos enviar el correo de verificación. Pídelo de nuevo en "Mis datos".';
       } else {
         await widget.estado.entrar(_correo.text, _password.text);
       }
       if (mounted) {
         Navigator.pop(context);
+        if (aviso != null) {
+          mostrarAviso(context, aviso);
+        }
       }
     } on ErrorApi catch (error) {
       if (mounted) {

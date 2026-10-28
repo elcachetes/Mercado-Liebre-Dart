@@ -22,6 +22,7 @@ class Usuario {
     this.fotoPerfilUrl,
     this.bloqueado = false,
     this.perfilEditable = false,
+    this.correoVerificado = true,
   });
 
   /// Identificador UUID.
@@ -56,6 +57,9 @@ class Usuario {
 
   /// Un moderador autorizó editar los datos personales.
   final bool perfilEditable;
+
+  /// Abrió el enlace del correo de verificación. Sin esto no califica ni comenta.
+  final bool correoVerificado;
 
   /// Nombre y apellido juntos.
   String get nombreCompleto => '$nombre $apellido'.trim();
@@ -100,6 +104,7 @@ class Usuario {
       fotoPerfilUrl: json['fotoPerfilUrl'] as String?,
       bloqueado: json['bloqueado'] == true,
       perfilEditable: json['perfilEditable'] == true,
+      correoVerificado: json['correoVerificado'] != false,
     );
   }
 }
@@ -360,6 +365,10 @@ class Apariencia {
     required this.logoUrl,
     required this.iconoUrl,
     required this.fotoPortadaUrl,
+    this.publicidad1Url = '',
+    this.publicidad1Enlace = '',
+    this.publicidad2Url = '',
+    this.publicidad2Enlace = '',
   });
 
   /// Nombre de la app en la barra superior.
@@ -397,6 +406,18 @@ class Apariencia {
 
   /// URL de la fotografía de portada, vacía si no hay.
   final String fotoPortadaUrl;
+
+  /// Imagen del anuncio de arriba en la barra lateral. Vacía muestra "Anúnciate aquí".
+  final String publicidad1Url;
+
+  /// Página que abre el anuncio de arriba, vacía si no abre nada.
+  final String publicidad1Enlace;
+
+  /// Imagen del anuncio de abajo en la barra lateral.
+  final String publicidad2Url;
+
+  /// Página que abre el anuncio de abajo.
+  final String publicidad2Enlace;
 
   /// Apariencia de fábrica, usada si la API no responde.
   factory Apariencia.predeterminada() {
@@ -440,6 +461,10 @@ class Apariencia {
       logoUrl: json['logoUrl'] as String? ?? '',
       iconoUrl: json['iconoUrl'] as String? ?? '',
       fotoPortadaUrl: json['fotoPortadaUrl'] as String? ?? '',
+      publicidad1Url: json['publicidad1Url'] as String? ?? '',
+      publicidad1Enlace: json['publicidad1Enlace'] as String? ?? '',
+      publicidad2Url: json['publicidad2Url'] as String? ?? '',
+      publicidad2Enlace: json['publicidad2Enlace'] as String? ?? '',
     );
   }
 
@@ -458,6 +483,10 @@ class Apariencia {
       'logoUrl': logoUrl,
       'iconoUrl': iconoUrl,
       'fotoPortadaUrl': fotoPortadaUrl,
+      'publicidad1Url': publicidad1Url,
+      'publicidad1Enlace': publicidad1Enlace,
+      'publicidad2Url': publicidad2Url,
+      'publicidad2Enlace': publicidad2Enlace,
     };
   }
 }

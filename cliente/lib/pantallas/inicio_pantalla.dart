@@ -206,7 +206,13 @@ class _AtajoBusqueda extends StatelessWidget {
               children: [
                 Icon(Icons.search, color: esquema.onSurfaceVariant),
                 const SizedBox(width: Espacio.m),
-                Text('Buscar comida, productos o servicios', style: TextStyle(color: esquema.onSurfaceVariant)),
+                Expanded(
+                  child: Text(
+                    'Buscar comida, productos o servicios',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: esquema.onSurfaceVariant),
+                  ),
+                ),
               ],
             ),
           ),

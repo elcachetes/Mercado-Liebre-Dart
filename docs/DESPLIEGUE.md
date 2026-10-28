@@ -117,6 +117,18 @@ Pestaña **Environment Variables** del recurso de la app:
 Marca `DATABASE_URL`, `APP_SECRET_KEY` y `ADMIN_PASSWORD` como
 **secretas** (no se mostrarán en logs).
 
+**Correo** (verificación de cuentas nuevas y reportes de fallas):
+
+| Variable          | Valor                                                       |
+|-------------------|-------------------------------------------------------------|
+| `SMTP_USUARIO`    | La cuenta de Zoho que envía, p. ej. `no.reply@mercadoliebre.shop` |
+| `SMTP_PASSWORD`   | Su contraseña (**secreta**)                                  |
+| `CORREO_REPORTES` | Buzón que recibe los reportes (por defecto `miguelsoto@mercadoliebre.shop`) |
+
+`SMTP_HOST` (`smtppro.zoho.com`) y `SMTP_PUERTO` (`465`, SSL) ya tienen valor
+por defecto. Sin `SMTP_USUARIO`/`SMTP_PASSWORD` la API arranca, avisa en los
+logs y responde 503 al registrar el correo o enviar un reporte.
+
 > **Nunca escribas `DATABASE_URL` en `docker-compose.yml`** ni en otro archivo
 > del repositorio: lleva la contraseña. Si llegó a subirse a Git, cambia la
 > contraseña en el recurso PostgreSQL y actualiza `DATABASE_URL` aquí.
@@ -188,6 +200,7 @@ respaldos de la base. Respáldalo con
 |---------|------------------|
 | Build de `web` termina en `Killed` o `exit code 137` | Falta memoria. Agrega swap (1.3) o usa un servidor de 4 GB. |
 | `api` reinicia con `Falta DATABASE_URL` o `APP_SECRET_KEY debe tener…` | Faltan variables en Coolify (4.1). |
+| Los correos no llegan; en logs `535 Authentication failed` | Revisa `SMTP_USUARIO`/`SMTP_PASSWORD`. Si la cuenta de Zoho tiene verificación en dos pasos, usa una *contraseña de aplicación*. |
 | `api` no conecta: `password authentication failed` | La contraseña de `DATABASE_URL` no es la del recurso PostgreSQL. Cópiala de nuevo de su *Postgres URL (internal)*. |
 | `api` no conecta: `Failed host lookup` | `api` y la base no comparten red de Docker. Revisa con `docker inspect` en qué red está la base (paso 4) y que `DATABASE_URL` use el host interno, no la IP pública. La API reintenta 10 veces (≈30 s) antes de reiniciarse. |
 | La API ignora el `DATABASE_URL` nuevo | Un admin guardó otra conexión desde el panel (`/app/datos/conexion.json`, que tiene prioridad). Usa *Restaurar la del entorno* en el panel o borra ese archivo y reinicia `api`. |

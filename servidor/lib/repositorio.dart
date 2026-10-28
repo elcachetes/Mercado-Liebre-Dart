@@ -184,9 +184,9 @@ class Repositorio {
         final insertado = await conexion.execute(
           Sql.named('''
             INSERT INTO users
-              (nombre, apellido, correo, telefono, numero_control, carrera, password_hash, rol)
+              (nombre, apellido, correo, telefono, numero_control, carrera, password_hash, rol, correo_verificado)
             VALUES
-              (@nombre, @apellido, @correo, @telefono, @numero, @carrera, @hash, @rol::user_role)
+              (@nombre, @apellido, @correo, @telefono, @numero, @carrera, @hash, @rol::user_role, @verificado)
             RETURNING *
           '''),
           parameters: {
@@ -198,6 +198,9 @@ class Repositorio {
             'carrera': opcionales['carrera'],
             'hash': hash,
             'rol': rol,
+            // El registro público verifica con el enlace del correo; las
+            // cuentas que crea el administrador ya nacen verificadas.
+            'verificado': privilegiado,
           },
         );
         final usuario = insertado.first.toColumnMap();
@@ -242,6 +245,15 @@ class Repositorio {
       return null;
     }
     return _usuario(fila);
+  }
+
+  /// Marca el correo de [userId] como verificado. Falso si la cuenta ya no existe.
+  Future<bool> verificarCorreo(String userId) async {
+    final resultado = await _pool.execute(
+      Sql.named('UPDATE users SET correo_verificado = TRUE WHERE id = @id'),
+      parameters: {'id': userId},
+    );
+    return resultado.affectedRows > 0;
   }
 
   /// Cambia teléfono, número de control y carrera de la cuenta.
@@ -471,15 +483,22 @@ class Repositorio {
   }
 
   /// Crea o actualiza la calificación de un comprador sobre un producto.
+  ///
+  /// Exige [correoVerificado]: una cuenta nueva no califica ni comenta
+  /// hasta abrir el enlace del correo de verificación.
   Future<void> calificar({
     required String buyerId,
     required String rol,
+    required bool correoVerificado,
     required String productId,
     required int estrellas,
     String? comentario,
   }) async {
     if (rol != 'comprador' && rol != 'admin') {
       throw ErrorApi(403, 'Solo un comprador puede calificar.');
+    }
+    if (!correoVerificado) {
+      throw ErrorApi(403, 'Verifica tu correo para calificar y comentar. Revisa tu bandeja de entrada.');
     }
     if (estrellas < 1 || estrellas > 5) {
       throw ErrorApi(400, 'La calificación va de 1 a 5 estrellas.');
@@ -812,6 +831,7 @@ class Repositorio {
       'fotoPerfilUrl': fila['foto_perfil_url'],
       'bloqueado': fila['bloqueado'] == true,
       'perfilEditable': fila['perfil_editable'] == true,
+      'correoVerificado': fila['correo_verificado'] == true,
     };
   }
 

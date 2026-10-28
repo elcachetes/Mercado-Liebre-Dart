@@ -12,6 +12,12 @@ const Map<String, String> aparienciaPredeterminada = {
   'logoUrl': '',
   'iconoUrl': '',
   'fotoPortadaUrl': '',
+  // Espacios publicitarios de la barra lateral (arriba y abajo).
+  // Imagen vacía muestra "Anúnciate aquí"; enlace vacío no abre nada.
+  'publicidad1Url': '',
+  'publicidad1Enlace': '',
+  'publicidad2Url': '',
+  'publicidad2Enlace': '',
 };
 
 /// Nombres de iconos Material que la app sabe dibujar.

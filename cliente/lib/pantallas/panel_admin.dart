@@ -53,6 +53,10 @@ class _PanelAdminState extends State<PanelAdmin> {
   final _logo = TextEditingController();
   final _iconoImagen = TextEditingController();
   final _portada = TextEditingController();
+  final _publicidad1 = TextEditingController();
+  final _publicidad1Enlace = TextEditingController();
+  final _publicidad2 = TextEditingController();
+  final _publicidad2Enlace = TextEditingController();
 
   String _rol = 'comprador';
   String _categoria = 'comida';
@@ -76,7 +80,8 @@ class _PanelAdminState extends State<PanelAdmin> {
     for (final campo in [
       _nombre, _apellido, _correo, _password, _negocio, _host, _puerto, _base,
       _usuarioDb, _contrasenaDb, _titulo, _menuInicio, _menuBusqueda, _menuMapa,
-      _menuPerfil, _logo, _iconoImagen, _portada,
+      _menuPerfil, _logo, _iconoImagen, _portada, _publicidad1, _publicidad1Enlace,
+      _publicidad2, _publicidad2Enlace,
     ]) {
       campo.dispose();
     }
@@ -92,6 +97,10 @@ class _PanelAdminState extends State<PanelAdmin> {
     _logo.text = menu.logoUrl;
     _iconoImagen.text = menu.iconoUrl;
     _portada.text = menu.fotoPortadaUrl;
+    _publicidad1.text = menu.publicidad1Url;
+    _publicidad1Enlace.text = menu.publicidad1Enlace;
+    _publicidad2.text = menu.publicidad2Url;
+    _publicidad2Enlace.text = menu.publicidad2Enlace;
     _iconoInicio = menu.iconoInicio;
     _iconoBusqueda = menu.iconoBusqueda;
     _iconoMapa = menu.iconoMapa;
@@ -210,6 +219,10 @@ class _PanelAdminState extends State<PanelAdmin> {
         logoUrl: _logo.text.trim(),
         iconoUrl: _iconoImagen.text.trim(),
         fotoPortadaUrl: _portada.text.trim(),
+        publicidad1Url: _publicidad1.text.trim(),
+        publicidad1Enlace: _publicidad1Enlace.text.trim(),
+        publicidad2Url: _publicidad2.text.trim(),
+        publicidad2Enlace: _publicidad2Enlace.text.trim(),
       ));
       widget.estado.aplicarApariencia(guardada);
     }, exito: 'Apariencia publicada.');
@@ -375,10 +388,22 @@ class _PanelAdminState extends State<PanelAdmin> {
             _filaMenu(_menuInicio, 'Menú inicio', _iconoInicio, (valor) => _iconoInicio = valor),
             _filaMenu(_menuBusqueda, 'Menú búsqueda', _iconoBusqueda, (valor) => _iconoBusqueda = valor),
             _filaMenu(_menuMapa, 'Menú mapa', _iconoMapa, (valor) => _iconoMapa = valor),
-            _filaMenu(_menuPerfil, 'Menú perfil', _iconoPerfil, (valor) => _iconoPerfil = valor),
             _foto('Logo', _logo),
             _foto('Icono', _iconoImagen),
             _foto('Fotografía de portada', _portada),
+            const Divider(),
+            Text('Publicidad de la barra lateral', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: Espacio.xs),
+            Text(
+              'Se ve en pantallas amplias, en dos espacios del mismo alto. Usa imágenes verticales '
+              '(por ejemplo 160 × 300 px). Sin imagen se muestra "Anúnciate aquí".',
+              style: TextStyle(color: esquema.onSurfaceVariant),
+            ),
+            separacion,
+            _foto('anuncio de arriba', _publicidad1),
+            _enlace(_publicidad1Enlace),
+            _foto('anuncio de abajo', _publicidad2),
+            _enlace(_publicidad2Enlace),
             separacion,
             FilledButton.icon(
               onPressed: _ocupado ? null : _guardarApariencia,
@@ -420,6 +445,22 @@ class _PanelAdminState extends State<PanelAdmin> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Página que abre el anuncio al tocarlo. Vacío: el anuncio no abre nada.
+  Widget _enlace(TextEditingController campo) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Espacio.l),
+      child: TextField(
+        controller: campo,
+        keyboardType: TextInputType.url,
+        decoration: const InputDecoration(
+          labelText: 'Enlace del anuncio (opcional)',
+          hintText: 'https://…',
+          prefixIcon: Icon(Icons.link),
+        ),
       ),
     );
   }

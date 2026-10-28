@@ -24,6 +24,15 @@ services:
       ADMIN_CORREO: ${ADMIN_CORREO:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       CORS_ORIGEN: ${CORS_ORIGEN:-*}
+      # Correo saliente (Zoho): verificación de cuentas y reportes de fallas.
+      # SMTP_PASSWORD va solo en Coolify, marcada como secreta.
+      SMTP_HOST: ${SMTP_HOST:-smtppro.zoho.com}
+      SMTP_PUERTO: ${SMTP_PUERTO:-465}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      CORREO_REMITENTE: ${CORREO_REMITENTE:-}
+      CORREO_REPORTES: ${CORREO_REPORTES:-miguelsoto@mercadoliebre.shop}
+      URL_PUBLICA: ${URL_PUBLICA:-}
       # Puerto HTTP de la API. Debe coincidir con "api:8080" en cliente/nginx.conf.
       PORT: "8080"
       APLICAR_ESQUEMA: "true"

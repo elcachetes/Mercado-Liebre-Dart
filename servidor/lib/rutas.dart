@@ -7,8 +7,10 @@ import 'package:shelf_router/shelf_router.dart';
 
 import 'apariencia.dart';
 import 'configuracion.dart';
+import 'correo.dart';
 import 'medios.dart';
 import 'plano.dart';
+import 'reportes.dart';
 import 'repositorio.dart';
 import 'token_sesion.dart';
 
@@ -25,10 +27,35 @@ const Set<String> _rolesModeracion = {'moderador', 'admin'};
 /// Cada ruta lee el cuerpo, delega la regla de negocio en [Repositorio]
 /// y responde JSON. Los errores de negocio se lanzan como [ErrorApi] y
 /// [capturarErrores] los traduce a `{ "error": "..." }`.
-Router construirRutas(Repositorio repositorio, TokenSesion tokens) {
+///
+/// [correo] envía la verificación de cuentas y los reportes; sin él (pruebas)
+/// se usa uno sin credenciales que responde 503 al intentar enviar.
+Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? correo}) {
   final router = Router();
   final sesion = _Sesion(repositorio, tokens);
   final medios = Medios(Directory('${repositorio.baseDatos.configuracion.rutaDatos}/medios'));
+  final cartero = correo ?? Correo(const ConfiguracionCorreo());
+  // Llave distinta a la de sesión: un token de sesión no verifica correos y viceversa.
+  final tokensCorreo = TokenSesion('${tokens.llave}|verificar-correo', vigencia: const Duration(hours: 48));
+  final limiteReportes = _Limite(5, const Duration(hours: 1));
+  final limiteVerificacion = _Limite(1, const Duration(minutes: 1));
+
+  /// Manda el enlace de verificación a [usuario]. Devuelve si se pudo enviar.
+  Future<bool> enviarVerificacion(Request request, Map<String, dynamic> usuario) async {
+    final token = tokensCorreo.emitir(usuario['id'] as String);
+    final enlace = '${_urlPublica(request, cartero.configuracion)}/api/verificar-correo?token=$token';
+    try {
+      await cartero.enviarVerificacion(
+        para: usuario['correo'] as String,
+        nombre: usuario['nombre'] as String,
+        enlace: enlace,
+      );
+      return true;
+    } on ErrorApi catch (error) {
+      stderr.writeln('Verificación de ${usuario['id']} no enviada: ${error.mensaje}');
+      return false;
+    }
+  }
 
   // ── Salud ─────────────────────────────────────────────────────────────
   router.get('/salud', (Request request) => _json(200, {'estado': 'ok'}));
@@ -44,11 +71,44 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens) {
 
   router.post('/api/usuarios', (Request request) async {
     final usuario = await repositorio.registrar(await _cuerpo(request));
-    return _json(201, {'token': tokens.emitir(usuario['id'] as String), 'usuario': usuario});
+    // La cuenta queda creada aunque el correo falle: puede pedir otro desde la app.
+    final enviado = usuario['correoVerificado'] == true ? false : await enviarVerificacion(request, usuario);
+    return _json(201, {
+      'token': tokens.emitir(usuario['id'] as String),
+      'usuario': usuario,
+      'correoEnviado': enviado,
+    });
   });
 
   router.get('/api/yo', (Request request) async {
     return _json(200, await sesion.usuario(request));
+  });
+
+  router.post('/api/yo/verificacion', (Request request) async {
+    final usuario = await sesion.usuario(request);
+    if (usuario['correoVerificado'] == true) {
+      throw ErrorApi(400, 'Tu correo ya está verificado.');
+    }
+    if (!limiteVerificacion.permitir(usuario['id'] as String)) {
+      throw ErrorApi(429, 'Ya te enviamos un correo. Espera un minuto antes de pedir otro.');
+    }
+    if (!await enviarVerificacion(request, usuario)) {
+      throw ErrorApi(502, 'No se pudo enviar el correo de verificación. Inténtalo más tarde.');
+    }
+    return _json(200, {'ok': true, 'correo': usuario['correo']});
+  });
+
+  router.get('/api/verificar-correo', (Request request) async {
+    final id = tokensCorreo.leer(request.url.queryParameters['token'] ?? '');
+    final inicio = _urlPublica(request, cartero.configuracion);
+    if (id == null) {
+      return _pagina(400, 'Enlace no válido',
+          'El enlace venció o está incompleto. Entra a Mercado Liebre y pide otro correo de verificación.', inicio);
+    }
+    if (!await repositorio.verificarCorreo(id)) {
+      return _pagina(404, 'Cuenta no encontrada', 'Esta cuenta ya no existe.', inicio);
+    }
+    return _pagina(200, '¡Correo verificado!', 'Ya puedes calificar y comentar productos en Mercado Liebre.', inicio);
   });
 
   router.patch('/api/yo', (Request request) async {
@@ -238,9 +298,34 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens) {
     await repositorio.calificar(
       buyerId: usuario['id'] as String,
       rol: usuario['rol'] as String,
+      correoVerificado: usuario['correoVerificado'] == true,
       productId: _texto(cuerpo, 'productoId'),
       estrellas: estrellas is int ? estrellas : int.tryParse('$estrellas') ?? 0,
       comentario: cuerpo['comentario']?.toString(),
+    );
+    return _json(200, {'ok': true});
+  });
+
+  // ── Reportes de fallas, quejas y sugerencias ──────────────────────────
+  router.post('/api/reportes', (Request request) async {
+    // Público: no exige sesión, pero si la hay se anota la cuenta.
+    if (!limiteReportes.permitir(_ip(request))) {
+      throw ErrorApi(429, 'Enviaste varios reportes seguidos. Inténtalo de nuevo en una hora.');
+    }
+    final reporte = Reporte.desdeJson(await _cuerpo(request));
+    String? cuenta;
+    if (request.headers.containsKey('authorization')) {
+      try {
+        cuenta = (await sesion.usuario(request))['correo'] as String?;
+      } on ErrorApi {
+        cuenta = null; // Token vencido: el reporte se envía igual, sin cuenta.
+      }
+    }
+    await cartero.enviarReporte(
+      contacto: reporte.contacto,
+      descripcion: reporte.descripcion,
+      cuenta: cuenta,
+      foto: reporte.foto,
     );
     return _json(200, {'ok': true});
   });
@@ -471,6 +556,16 @@ String _valorApariencia(String clave, String valor) {
     }
     return limpio;
   }
+  if (clave.endsWith('Enlace')) {
+    // Destino al tocar un anuncio. Solo http(s): nada de javascript: ni rutas locales.
+    if (limpio.isEmpty) {
+      return '';
+    }
+    if (!(limpio.startsWith('https://') || limpio.startsWith('http://')) || limpio.length > 500) {
+      throw ErrorApi(400, 'El enlace del anuncio debe empezar con http:// o https://.');
+    }
+    return limpio;
+  }
   if (limpio.isEmpty || limpio.length > 40) {
     throw ErrorApi(400, 'El texto del menú debe tener entre 1 y 40 caracteres.');
   }
@@ -543,6 +638,76 @@ Future<Map<String, dynamic>> _otraCuenta(Repositorio repositorio, Map<String, dy
     throw ErrorApi(404, 'No se encontró la cuenta.');
   }
   return cuenta;
+}
+
+/// Cuenta cuántas veces se usó una acción por clave (IP o cuenta) en una ventana de tiempo.
+///
+/// Vive en memoria: se reinicia con la API, suficiente para frenar abusos
+/// de las rutas que envían correo.
+class _Limite {
+  _Limite(this.maximo, this.ventana);
+
+  final int maximo;
+  final Duration ventana;
+  final Map<String, List<DateTime>> _usos = {};
+
+  /// Registra un uso de [clave] y dice si todavía está dentro del límite.
+  bool permitir(String clave) {
+    final ahora = DateTime.now();
+    _usos.removeWhere((_, usos) {
+      usos.removeWhere((uso) => ahora.difference(uso) >= ventana);
+      return usos.isEmpty;
+    });
+    final usos = _usos.putIfAbsent(clave, () => []);
+    if (usos.length >= maximo) {
+      return false;
+    }
+    usos.add(ahora);
+    return true;
+  }
+}
+
+/// IP de quien llama. nginx la pone en `X-Real-IP`; sin proxy, la del socket.
+String _ip(Request request) {
+  final real = request.headers['x-real-ip']?.trim() ?? '';
+  if (real.isNotEmpty) {
+    return real;
+  }
+  final conexion = request.context['shelf.io.connection_info'];
+  return conexion is HttpConnectionInfo ? conexion.remoteAddress.address : 'desconocida';
+}
+
+/// Origen público para los enlaces de los correos.
+///
+/// `URL_PUBLICA` si está definida; si no, el `Host` que reenvía nginx, con
+/// https salvo en localhost (Coolify termina HTTPS delante de nginx).
+String _urlPublica(Request request, ConfiguracionCorreo configuracion) {
+  final fija = configuracion.urlPublica;
+  if (fija.isNotEmpty) {
+    return fija.endsWith('/') ? fija.substring(0, fija.length - 1) : fija;
+  }
+  final host = request.headers['host'] ?? request.requestedUri.authority;
+  final local = host.startsWith('localhost') || host.startsWith('127.0.0.1');
+  return '${local ? 'http' : 'https'}://$host';
+}
+
+/// Página HTML breve para quien abre el enlace del correo en el navegador.
+Response _pagina(int estado, String titulo, String mensaje, String inicio) {
+  const seguro = HtmlEscape();
+  final cuerpo = '''
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${seguro.convert(titulo)} · Mercado Liebre</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#f5f5f5;color:#222;display:grid;place-items:center;min-height:100vh}
+  main{background:#fff;max-width:420px;margin:16px;padding:32px;border-radius:12px;box-shadow:0 2px 12px #0002;text-align:center}
+  h1{color:#d32f2f;font-size:1.4rem}
+  a{display:inline-block;margin-top:16px;background:#d32f2f;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none}
+</style></head>
+<body><main><h1>${seguro.convert(titulo)}</h1><p>${seguro.convert(mensaje)}</p>
+<a href="${seguro.convert(inicio)}">Ir a Mercado Liebre</a></main></body></html>
+''';
+  return Response(estado, body: cuerpo, headers: {'content-type': 'text/html; charset=utf-8'});
 }
 
 /// `cuerpo[clave]` como texto sin espacios; vacío si no viene.

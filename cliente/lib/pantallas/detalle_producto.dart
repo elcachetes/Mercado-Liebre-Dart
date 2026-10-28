@@ -5,6 +5,7 @@ import '../servicios/api.dart';
 import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
+import '../widgets/verificacion.dart';
 import 'sesion_dialogo.dart';
 
 /// Abre la hoja inferior de un producto: precio, reseñas y formulario para calificar.
@@ -37,12 +38,22 @@ class _HojaProductoState extends State<_HojaProducto> {
   void initState() {
     super.initState();
     _resenas = widget.estado.api.calificaciones(widget.producto.id);
+    // La hoja no está bajo el ListenableBuilder de la app: entrar o verificar
+    // el correo desde aquí debe mostrar el formulario sin cerrarla.
+    widget.estado.addListener(_alCambiarEstado);
   }
 
   @override
   void dispose() {
+    widget.estado.removeListener(_alCambiarEstado);
     _comentario.dispose();
     super.dispose();
+  }
+
+  void _alCambiarEstado() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _publicar() async {
@@ -119,6 +130,8 @@ class _HojaProductoState extends State<_HojaProducto> {
                 icon: const Icon(Icons.login),
                 label: const Text('Entra para calificar'),
               )
+            else if (!widget.estado.usuario!.correoVerificado)
+              AvisoVerificacion(estado: widget.estado)
             else ...[
               Row(
                 children: [

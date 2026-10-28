@@ -100,6 +100,11 @@ CREATE INDEX IF NOT EXISTS idx_sellers_disponible ON sellers (disponible) WHERE 
 CREATE INDEX IF NOT EXISTS idx_ratings_buyer ON ratings (buyer_id);
 CREATE INDEX IF NOT EXISTS idx_favorites_seller ON favorites (seller_id);
 
+-- Verificación de correo. Las cuentas que ya existían quedan verificadas
+-- (DEFAULT TRUE al agregar la columna); el registro público inserta FALSE
+-- explícitamente y la cuenta se verifica con el enlace del correo.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS correo_verificado BOOLEAN NOT NULL DEFAULT TRUE;
+
 CREATE OR REPLACE VIEW product_ratings_summary AS
 SELECT
   product_id,

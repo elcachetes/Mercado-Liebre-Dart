@@ -9,7 +9,9 @@ import '../widgets/comunes.dart';
 import '../widgets/tarjeta_vendedor.dart';
 import 'detalle_vendedor.dart';
 
-/// Plano del plantel. Tocar un edificio o su nombre lista a quien vende ahí.
+/// Plano del plantel y su leyenda, cada uno en la mitad de la pantalla.
+///
+/// Tocar un edificio del plano o un lugar de la lista muestra a quien vende ahí.
 class MapaPantalla extends StatefulWidget {
   /// [estado] decide si se ofrece "Registrar mi puesto aquí".
   const MapaPantalla({super.key, required this.estado});
@@ -33,7 +35,6 @@ class _MapaPantallaState extends State<MapaPantalla> {
   String? _error;
   bool _cargando = true;
   Size? _vista;
-  double? _escalaEncuadre;
 
   @override
   void initState() {
@@ -77,31 +78,37 @@ class _MapaPantallaState extends State<MapaPantalla> {
 
   int _abiertosEn(String codigo) => _porPunto[codigo]?.where((vendedor) => vendedor.disponible).length ?? 0;
 
-  /// Escala el plano para que quepa en [limites] sin recortar edificios.
+  /// Guarda el tamaño del marco del plano y lo encuadra la primera vez.
   ///
-  /// Se aplica una sola vez, después del primer layout, para no pelear
-  /// con un gesto que la persona ya haya empezado.
+  /// El primer encuadre se aplica una sola vez, después del primer layout,
+  /// para no pelear con un gesto que la persona ya haya empezado.
   void _encuadrar(BoxConstraints limites) {
     if (!limites.hasBoundedWidth || !limites.hasBoundedHeight || limites.maxWidth <= 0 || limites.maxHeight <= 0) {
       return;
     }
+    final primera = _vista == null;
     _vista = limites.biggest;
-    if (_escalaEncuadre != null) {
-      return;
+    if (primera) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _restablecer();
+        }
+      });
     }
-    final porAncho = limites.maxWidth / imagenAncho;
-    final porAlto = limites.maxHeight / imagenAlto;
-    _escalaEncuadre = porAncho < porAlto ? porAncho : porAlto;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _restablecer();
-      }
-    });
   }
 
+  /// Escala el dibujo para que llene el marco sin recortar edificios, centrado.
   void _restablecer() {
-    final escala = _escalaEncuadre ?? 1;
-    _transformacion.value = Matrix4.diagonal3Values(escala, escala, 1);
+    final vista = _vista;
+    if (vista == null) {
+      return;
+    }
+    final porAncho = vista.width / dibujoAncho;
+    final porAlto = vista.height / imagenAlto;
+    final escala = porAncho < porAlto ? porAncho : porAlto;
+    final dx = (vista.width - dibujoAncho * escala) / 2;
+    final dy = (vista.height - imagenAlto * escala) / 2;
+    _transformacion.value = Matrix4.translationValues(dx, dy, 0)..multiply(Matrix4.diagonal3Values(escala, escala, 1));
   }
 
   /// Acerca o aleja manteniendo el centro de la vista.
@@ -208,21 +215,19 @@ class _MapaPantallaState extends State<MapaPantalla> {
   @override
   Widget build(BuildContext context) {
     final tema = Theme.of(context);
-    final conVenta = [for (final punto in puntosCampus) if (_abiertosEn(punto.codigo) > 0) punto];
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(Espacio.l, Espacio.l, Espacio.l, Espacio.s),
+          padding: const EdgeInsets.fromLTRB(Espacio.l, Espacio.m, Espacio.l, Espacio.s),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Mapa del plantel', style: tema.textTheme.headlineSmall),
+              Text('Mapa del plantel', style: tema.textTheme.titleLarge),
               const SizedBox(height: Espacio.xs),
               Text(
-                'Toca un edificio o su nombre en la leyenda para ver quién vende ahí. '
-                'Los recuadros rojos tienen vendedores abiertos.',
+                'Toca un edificio en el plano o un lugar de la lista para ver quién vende ahí. '
+                'Lo marcado en rojo tiene vendedores abiertos.',
                 style: TextStyle(color: tema.colorScheme.onSurfaceVariant),
               ),
               if (_error != null) ...[
@@ -239,89 +244,103 @@ class _MapaPantallaState extends State<MapaPantalla> {
             ],
           ),
         ),
-        if (conVenta.isNotEmpty)
-          SizedBox(
-            height: 44,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: Espacio.l),
-              children: [
-                for (final punto in conVenta)
-                  Padding(
-                    padding: const EdgeInsets.only(right: Espacio.s),
-                    child: ActionChip(
-                      avatar: CircleAvatar(
-                        backgroundColor: ColoresLiebre.primario,
-                        child: Text('${_abiertosEn(punto.codigo)}',
-                            style: const TextStyle(color: Colors.white, fontSize: 11)),
-                      ),
-                      label: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 220),
-                        child: Text(punto.titulo, overflow: TextOverflow.ellipsis),
-                      ),
-                      onPressed: () => _abrir(punto),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+        if (_cargando) const LinearProgressIndicator(),
         Expanded(
-          child: ClipRect(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: LayoutBuilder(
-                    builder: (contexto, limites) {
-                      _encuadrar(limites);
-                      return InteractiveViewer(
-                        transformationController: _transformacion,
-                        alignment: Alignment.topLeft,
-                        minScale: _escalaMinima,
-                        maxScale: _escalaMaxima,
-                        boundaryMargin: const EdgeInsets.all(80),
-                        constrained: false,
-                        child: SizedBox(
+          child: LayoutBuilder(
+            builder: (contexto, limites) {
+              // Lado a lado si hay ancho; en el celular, el plano arriba y la lista abajo.
+              final ladoALado = limites.maxWidth >= 720;
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(Espacio.m, 0, Espacio.m, Espacio.m),
+                child: Flex(
+                  direction: ladoALado ? Axis.horizontal : Axis.vertical,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: _marco(_plano())),
+                    SizedBox(width: ladoALado ? Espacio.m : 0, height: ladoALado ? 0 : Espacio.m),
+                    Expanded(child: _marco(_leyenda())),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Recuadro con borde que contiene el plano o la leyenda.
+  Widget _marco(Widget contenido) {
+    final esquema = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: esquema.outlineVariant),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ClipRRect(borderRadius: BorderRadius.circular(12), child: contenido),
+    );
+  }
+
+  /// Solo el dibujo del plantel (la mitad izquierda de la imagen), con zoom.
+  Widget _plano() {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: ColoredBox(
+            // Fondo claro como el de la imagen, también en modo oscuro.
+            color: const Color(0xFFF3EEEE),
+            child: LayoutBuilder(
+              builder: (contexto, limites) {
+                _encuadrar(limites);
+                return InteractiveViewer(
+                  transformationController: _transformacion,
+                  alignment: Alignment.topLeft,
+                  minScale: _escalaMinima,
+                  maxScale: _escalaMaxima,
+                  boundaryMargin: const EdgeInsets.all(80),
+                  constrained: false,
+                  child: SizedBox(
+                    width: dibujoAncho.toDouble(),
+                    height: imagenAlto.toDouble(),
+                    // El Stack recorta la leyenda impresa, que queda fuera de dibujoAncho.
+                    child: Stack(
+                      clipBehavior: Clip.hardEdge,
+                      children: [
+                        Positioned(
+                          left: 0,
+                          top: 0,
                           width: imagenAncho.toDouble(),
                           height: imagenAlto.toDouble(),
-                          child: Stack(
-                            children: [
-                              Image.asset(
-                                'assets/mapa_plantel.jpg',
-                                width: imagenAncho.toDouble(),
-                                height: imagenAlto.toDouble(),
-                                fit: BoxFit.fill,
-                                semanticLabel: 'Plano del plantel del ITCJ',
-                              ),
-                              for (final punto in puntosCampus) ...[
-                                for (final zona in punto.plano) _zona(zona, punto, enDibujo: true),
-                                _zona(punto.leyenda, punto, enDibujo: false),
-                              ],
-                            ],
+                          child: Image.asset(
+                            'assets/mapa_plantel.jpg',
+                            fit: BoxFit.fill,
+                            semanticLabel: 'Plano del plantel del ITCJ',
                           ),
                         ),
-                      );
-                    },
-                  ),
-                ),
-                if (_cargando) const Positioned(top: 0, left: 0, right: 0, child: LinearProgressIndicator()),
-                Positioned(
-                  right: Espacio.m,
-                  bottom: Espacio.m,
-                  child: Card(
-                    elevation: 2,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(tooltip: 'Acercar', icon: const Icon(Icons.add), onPressed: () => _zoom(1.5)),
-                        IconButton(tooltip: 'Alejar', icon: const Icon(Icons.remove), onPressed: () => _zoom(1 / 1.5)),
-                        IconButton(
-                          tooltip: 'Ver el plano completo',
-                          icon: const Icon(Icons.fit_screen_outlined),
-                          onPressed: _restablecer,
-                        ),
+                        for (final punto in puntosCampus)
+                          for (final zona in punto.plano) _zona(zona, punto),
                       ],
                     ),
                   ),
+                );
+              },
+            ),
+          ),
+        ),
+        Positioned(
+          right: Espacio.s,
+          bottom: Espacio.s,
+          child: Card(
+            elevation: 2,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(tooltip: 'Acercar', icon: const Icon(Icons.add), onPressed: () => _zoom(1.5)),
+                IconButton(tooltip: 'Alejar', icon: const Icon(Icons.remove), onPressed: () => _zoom(1 / 1.5)),
+                IconButton(
+                  tooltip: 'Ver el plano completo',
+                  icon: const Icon(Icons.fit_screen_outlined),
+                  onPressed: _restablecer,
                 ),
               ],
             ),
@@ -331,7 +350,102 @@ class _MapaPantallaState extends State<MapaPantalla> {
     );
   }
 
-  Widget _zona(RectPlano zona, PuntoCampus punto, {required bool enDibujo}) {
+  /// Leyenda como texto de la app: más grande y nítida que la impresa en la imagen.
+  Widget _leyenda() {
+    final tema = Theme.of(context);
+    final conVenta = puntosCampus.where((punto) => _abiertosEn(punto.codigo) > 0).length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(Espacio.m, Espacio.m, Espacio.m, Espacio.s),
+          child: Row(
+            children: [
+              Expanded(child: Text('Edificios y lugares', style: tema.textTheme.titleMedium)),
+              Text(
+                conVenta == 0 ? 'Sin ventas abiertas' : '$conVenta con ventas abiertas',
+                style: tema.textTheme.labelMedium?.copyWith(color: tema.colorScheme.onSurfaceVariant),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: GridView.builder(
+            padding: const EdgeInsets.all(Espacio.s),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 360,
+              mainAxisExtent: 52,
+              crossAxisSpacing: Espacio.xs,
+              mainAxisSpacing: Espacio.xs,
+            ),
+            itemCount: puntosCampus.length,
+            itemBuilder: (contexto, indice) => _lugar(puntosCampus[indice]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Renglón de la leyenda: código, nombre y cuántos vendedores están abiertos.
+  Widget _lugar(PuntoCampus punto) {
+    final tema = Theme.of(context);
+    final abiertos = _abiertosEn(punto.codigo);
+    final activo = abiertos > 0;
+    return Semantics(
+      button: true,
+      label: '${punto.titulo}, $abiertos abiertos',
+      excludeSemantics: true,
+      child: Material(
+        color: activo ? ColoresLiebre.primario.withValues(alpha: 0.08) : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _abrir(punto),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Espacio.s),
+            child: Row(
+              children: [
+                Container(
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: activo ? ColoresLiebre.primario : tema.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    punto.codigo,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: activo ? Colors.white : tema.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: Espacio.s),
+                Expanded(
+                  child: Text(
+                    punto.nombre,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: tema.textTheme.bodyLarge,
+                  ),
+                ),
+                if (activo)
+                  CircleAvatar(
+                    radius: 11,
+                    backgroundColor: ColoresLiebre.primario,
+                    child: Text('$abiertos', style: const TextStyle(color: Colors.white, fontSize: 11)),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _zona(RectPlano zona, PuntoCampus punto) {
     final cantidad = _abiertosEn(punto.codigo);
     return Positioned(
       left: zona.x.toDouble(),
@@ -347,20 +461,18 @@ class _MapaPantallaState extends State<MapaPantalla> {
             onTap: () => _abrir(punto),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: cantidad > 0 && enDibujo ? ColoresLiebre.primario.withValues(alpha: 0.15) : null,
-                border: cantidad > 0 && enDibujo ? Border.all(color: ColoresLiebre.primario, width: 2) : null,
+                color: cantidad > 0 ? ColoresLiebre.primario.withValues(alpha: 0.15) : null,
+                border: cantidad > 0 ? Border.all(color: ColoresLiebre.primario, width: 2) : null,
               ),
               child: cantidad == 0
                   ? null
                   : Align(
-                      alignment: enDibujo ? Alignment.topRight : Alignment.centerLeft,
-                      child: enDibujo
-                          ? CircleAvatar(
-                              radius: 9,
-                              backgroundColor: ColoresLiebre.primario,
-                              child: Text('$cantidad', style: const TextStyle(color: Colors.white, fontSize: 10)),
-                            )
-                          : Container(width: 6, height: zona.alto.toDouble(), color: ColoresLiebre.primario),
+                      alignment: Alignment.topRight,
+                      child: CircleAvatar(
+                        radius: 9,
+                        backgroundColor: ColoresLiebre.primario,
+                        child: Text('$cantidad', style: const TextStyle(color: Colors.white, fontSize: 10)),
+                      ),
                     ),
             ),
           ),

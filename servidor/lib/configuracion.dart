@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'correo.dart';
+
 /// Parámetros de arranque leídos del entorno del proceso.
 ///
 /// La URL de PostgreSQL, el usuario y la contraseña no viven en el código:
@@ -22,6 +24,7 @@ class Configuracion {
     required this.adminCorreo,
     required this.adminPassword,
     this.origenCors = '*',
+    this.correo = const ConfiguracionCorreo(),
   });
 
   /// URL activa `postgres://usuario:contraseña@host:puerto/base`.
@@ -63,6 +66,9 @@ class Configuracion {
   /// cuando una app web en otro dominio llama directo a la API.
   final String origenCors;
 
+  /// SMTP para la verificación de correo y los reportes. Sin credenciales, no envía.
+  final ConfiguracionCorreo correo;
+
   /// Copia con otra URL y otro modo SSL, conservando el resto.
   Configuracion conConexion({required String url, required bool usarSsl}) {
     return Configuracion(
@@ -78,6 +84,7 @@ class Configuracion {
       adminCorreo: adminCorreo,
       adminPassword: adminPassword,
       origenCors: origenCors,
+      correo: correo,
     );
   }
 
@@ -167,6 +174,7 @@ class Configuracion {
       adminCorreo: valores['ADMIN_CORREO']?.trim() ?? '',
       adminPassword: valores['ADMIN_PASSWORD'] ?? '',
       origenCors: _textoOr(valores['CORS_ORIGEN'], '*'),
+      correo: ConfiguracionCorreo.desdeEntorno(valores),
     );
   }
 

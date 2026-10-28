@@ -7,21 +7,73 @@ import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
 import '../widgets/datos_opcionales.dart';
 import '../widgets/tarjeta_vendedor.dart';
+import '../widgets/verificacion.dart';
 import 'detalle_vendedor.dart';
 import 'panel_admin.dart';
 import 'panel_negocio.dart';
-import 'sesion_dialogo.dart';
 
-/// Perfil, favoritos, panel del negocio, administración y moderación.
-///
-/// Qué secciones aparecen depende del rol de la cuenta:
-/// vendedor → "Mi negocio"; admin → "Administración"; admin o moderador → "Moderación".
+/// Secciones de la cuenta. Aparecen en el menú que se abre al tocar el
+/// nombre en la barra superior; cada una se abre en su propia página.
+enum SeccionCuenta {
+  /// Datos personales y estado de la verificación del correo.
+  datos('Mis datos', Icons.badge_outlined),
+
+  /// Negocios guardados con el corazón.
+  favoritos('Favoritos', Icons.favorite_outline),
+
+  /// Panel del vendedor.
+  negocio('Mi negocio', Icons.storefront_outlined),
+
+  /// Herramientas del administrador.
+  administracion('Administración', Icons.admin_panel_settings_outlined),
+
+  /// Bloqueo y borrado de cuentas.
+  moderacion('Moderación', Icons.shield_outlined);
+
+  const SeccionCuenta(this.titulo, this.icono);
+
+  /// Texto del menú y de la barra de la página.
+  final String titulo;
+
+  /// Icono del menú.
+  final IconData icono;
+
+  /// Secciones que puede abrir [usuario], en el orden del menú.
+  ///
+  /// vendedor → "Mi negocio"; admin → "Administración"; admin o moderador → "Moderación".
+  static List<SeccionCuenta> para(Usuario usuario) {
+    return [
+      datos,
+      favoritos,
+      if (usuario.esVendedor) negocio,
+      if (usuario.esAdmin) administracion,
+      if (usuario.esModerador) moderacion,
+    ];
+  }
+}
+
+/// Abre [seccion] en una página nueva con flecha para volver.
+Future<void> abrirSeccionCuenta(BuildContext context, EstadoApp estado, SeccionCuenta seccion) {
+  return Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: Text(seccion.titulo)),
+        body: AnchoLimitado(child: PerfilPantalla(estado: estado, seccion: seccion)),
+      ),
+    ),
+  );
+}
+
+/// Contenido de una [SeccionCuenta]. Solo carga lo que esa sección necesita.
 class PerfilPantalla extends StatefulWidget {
-  /// [estado] decide si se muestra la invitación a entrar o la cuenta.
-  const PerfilPantalla({super.key, required this.estado});
+  /// [seccion] decide qué se muestra y qué se pide a la API.
+  const PerfilPantalla({super.key, required this.estado, required this.seccion});
 
   /// Sesión actual.
   final EstadoApp estado;
+
+  /// Parte de la cuenta que se muestra.
+  final SeccionCuenta seccion;
 
   @override
   State<PerfilPantalla> createState() => _PerfilPantallaState();
@@ -32,6 +84,7 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
   Vendedor? _negocio;
   List<Usuario> _cuentas = [];
   String? _cuentaCargada;
+  bool _cargando = true;
 
   @override
   void initState() {
@@ -46,10 +99,12 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
     super.dispose();
   }
 
-  /// Solo recarga si cambió la cuenta, no por cambios de tema o favoritos.
+  /// Recarga si cambió la cuenta; redibuja con cualquier otro cambio (favoritos, verificación).
   void _alCambiarEstado() {
     if (widget.estado.usuario?.id != _cuentaCargada) {
       _cargar();
+    } else if (mounted) {
+      setState(() {});
     }
   }
 
@@ -57,32 +112,39 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
     final usuario = widget.estado.usuario;
     _cuentaCargada = usuario?.id;
     if (usuario == null) {
-      setState(() {
-        _vendedores = [];
-        _negocio = null;
-        _cuentas = [];
-      });
+      setState(() => _cargando = false);
       return;
     }
     final api = widget.estado.api;
+    setState(() => _cargando = true);
     try {
-      final (vendedores, negocio, cuentas) = await (
-        api.vendedores(),
-        usuario.esVendedor ? api.miNegocio() : Future<Vendedor?>.value(),
-        usuario.esModerador ? api.usuariosModeracion() : Future.value(const <Usuario>[]),
-      ).wait;
-      if (!mounted || widget.estado.usuario?.id != usuario.id) {
-        return;
+      switch (widget.seccion) {
+        case SeccionCuenta.favoritos:
+          final vendedores = await api.vendedores();
+          if (mounted) {
+            setState(() => _vendedores = vendedores);
+          }
+        case SeccionCuenta.negocio:
+          final negocio = await api.miNegocio();
+          if (mounted) {
+            setState(() => _negocio = negocio);
+          }
+        case SeccionCuenta.moderacion:
+          final cuentas = await api.usuariosModeracion();
+          if (mounted) {
+            setState(() => _cuentas = cuentas.where((cuenta) => cuenta.id != usuario.id).toList());
+          }
+        case SeccionCuenta.datos:
+        case SeccionCuenta.administracion:
+          break;
       }
-      setState(() {
-        _vendedores = vendedores;
-        _negocio = negocio;
-        _cuentas = cuentas.where((cuenta) => cuenta.id != usuario.id).toList();
-      });
-    } on ParallelWaitError<dynamic, dynamic> {
-      // La pantalla sigue usable aunque falle un panel secundario.
+    } on ErrorApi catch (error) {
       if (mounted) {
-        mostrarAviso(context, 'No se pudo cargar todo tu perfil. Desliza para reintentar.');
+        mostrarAviso(context, error.mensaje);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _cargando = false);
       }
     }
   }
@@ -91,15 +153,26 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
   Widget build(BuildContext context) {
     final usuario = widget.estado.usuario;
     if (usuario == null) {
-      return _Invitado(estado: widget.estado);
+      return const EstadoVacio(icono: Icons.lock_outline, mensaje: 'Inicia sesión para ver esta sección.');
     }
-    final favoritos = _vendedores.where((vendedor) => widget.estado.esFavorito(vendedor.id)).toList();
-
     return RefreshIndicator(
       onRefresh: _cargar,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(Espacio.l, Espacio.l, Espacio.l, Espacio.xl),
         children: [
+          if (_cargando) const LinearProgressIndicator(),
+          ..._contenido(context, usuario),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _contenido(BuildContext context, Usuario usuario) {
+    final tenue = TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant);
+    switch (widget.seccion) {
+      case SeccionCuenta.datos:
+        return [
+          AvisoVerificacion(estado: widget.estado),
           _Encabezado(
             usuario: usuario,
             alEditar: () => showDialog<void>(
@@ -107,96 +180,52 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
               builder: (_) => _EditarDatos(estado: widget.estado),
             ),
           ),
-          const TituloSeccion('Favoritos', icono: Icons.favorite_outline),
-          if (favoritos.isEmpty)
-            Text(
-              'Aún no tienes favoritos. Abre un negocio y toca el corazón para guardarlo aquí.',
-              style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-            )
-          else
-            for (final vendedor in favoritos)
-              Padding(
-                padding: const EdgeInsets.only(bottom: Espacio.s),
-                child: TarjetaVendedor(
-                  vendedor: vendedor,
-                  compacta: true,
-                  favorito: true,
-                  alTocar: () => abrirVendedor(context, widget.estado, vendedor),
-                ),
-              ),
-          if (_negocio != null) ...[
-            const TituloSeccion('Mi negocio', icono: Icons.storefront_outlined),
-            PanelNegocio(estado: widget.estado, negocio: _negocio!, alCambiar: _cargar),
-          ],
-          if (usuario.esAdmin) ...[
-            const TituloSeccion('Administración', icono: Icons.admin_panel_settings_outlined),
-            PanelAdmin(estado: widget.estado, alCambiar: _cargar),
-          ],
-          if (usuario.esModerador) ...[
-            TituloSeccion(
-              'Moderación',
-              icono: Icons.shield_outlined,
-              accion: Text('${_cuentas.length} cuentas', style: Theme.of(context).textTheme.labelLarge),
-            ),
-            Card(
-              child: Column(
-                children: [
-                  for (final cuenta in _cuentas) _FilaCuenta(cuenta: cuenta, actor: usuario, estado: widget.estado, alCambiar: _cargar),
-                  if (_cuentas.isEmpty) const ListTile(title: Text('No hay otras cuentas.')),
-                ],
+        ];
+      case SeccionCuenta.favoritos:
+        final favoritos = _vendedores.where((vendedor) => widget.estado.esFavorito(vendedor.id)).toList();
+        if (favoritos.isEmpty) {
+          return [
+            if (!_cargando)
+              Text('Aún no tienes favoritos. Abre un negocio y toca el corazón para guardarlo aquí.', style: tenue),
+          ];
+        }
+        return [
+          for (final vendedor in favoritos)
+            Padding(
+              padding: const EdgeInsets.only(bottom: Espacio.s),
+              child: TarjetaVendedor(
+                vendedor: vendedor,
+                compacta: true,
+                favorito: true,
+                alTocar: () => abrirVendedor(context, widget.estado, vendedor),
               ),
             ),
-          ],
-          const SizedBox(height: Espacio.xl),
-          OutlinedButton.icon(
-            onPressed: () async {
-              if (await confirmar(context, titulo: 'Cerrar sesión', mensaje: '¿Quieres salir de tu cuenta?', accion: 'Salir')) {
-                await widget.estado.salir();
-              }
-            },
-            icon: const Icon(Icons.logout),
-            label: const Text('Cerrar sesión'),
+        ];
+      case SeccionCuenta.negocio:
+        final negocio = _negocio;
+        if (negocio == null) {
+          return [if (!_cargando) Text('Tu cuenta todavía no tiene un perfil de negocio.', style: tenue)];
+        }
+        return [PanelNegocio(estado: widget.estado, negocio: negocio, alCambiar: _cargar)];
+      case SeccionCuenta.administracion:
+        return [PanelAdmin(estado: widget.estado, alCambiar: _cargar)];
+      case SeccionCuenta.moderacion:
+        return [
+          Padding(
+            padding: const EdgeInsets.only(bottom: Espacio.s),
+            child: Text('${_cuentas.length} cuentas', style: Theme.of(context).textTheme.labelLarge),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Invitado extends StatelessWidget {
-  const _Invitado({required this.estado});
-
-  final EstadoApp estado;
-
-  @override
-  Widget build(BuildContext context) {
-    final tema = Theme.of(context);
-    return ListView(
-      padding: const EdgeInsets.all(Espacio.xl),
-      children: [
-        Icon(Icons.account_circle_outlined, size: 72, color: tema.colorScheme.primary),
-        const SizedBox(height: Espacio.l),
-        Text('Tu perfil', style: tema.textTheme.headlineSmall, textAlign: TextAlign.center),
-        const SizedBox(height: Espacio.s),
-        Text(
-          'Puedes explorar sin cuenta. Entra para calificar productos, guardar favoritos o administrar tu negocio.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: tema.colorScheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: Espacio.xl),
-        FilledButton.icon(
-          onPressed: () => mostrarDialogoSesion(context, estado),
-          icon: const Icon(Icons.login),
-          label: const Text('Iniciar sesión'),
-        ),
-        const SizedBox(height: Espacio.s),
-        OutlinedButton.icon(
-          onPressed: () => mostrarDialogoSesion(context, estado, registro: true),
-          icon: const Icon(Icons.person_add_alt),
-          label: const Text('Crear cuenta'),
-        ),
-      ],
-    );
+          Card(
+            child: Column(
+              children: [
+                for (final cuenta in _cuentas)
+                  _FilaCuenta(cuenta: cuenta, actor: usuario, estado: widget.estado, alCambiar: _cargar),
+                if (_cuentas.isEmpty && !_cargando) const ListTile(title: Text('No hay otras cuentas.')),
+              ],
+            ),
+          ),
+        ];
+    }
   }
 }
 

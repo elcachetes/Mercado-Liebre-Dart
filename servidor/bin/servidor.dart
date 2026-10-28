@@ -5,6 +5,7 @@ import 'package:shelf/shelf_io.dart';
 
 import 'package:mercado_liebre_api/base_datos.dart';
 import 'package:mercado_liebre_api/configuracion.dart';
+import 'package:mercado_liebre_api/correo.dart';
 import 'package:mercado_liebre_api/repositorio.dart';
 import 'package:mercado_liebre_api/rutas.dart';
 import 'package:mercado_liebre_api/token_sesion.dart';
@@ -38,10 +39,13 @@ Future<void> main() async {
       .addMiddleware(logRequests())
       .addMiddleware(capturarErrores())
       .addMiddleware(_cors(configuracion.origenCors))
-      .addHandler(construirRutas(repositorio, tokens).call);
+      .addHandler(construirRutas(repositorio, tokens, correo: Correo(configuracion.correo)).call);
 
   final servidor = await serve(handler, InternetAddress.anyIPv4, configuracion.puertoHttp);
   stdout.writeln('API de Mercado Liebre en el puerto ${servidor.port}.');
+  if (!configuracion.correo.configurado) {
+    stdout.writeln('Aviso: faltan SMTP_USUARIO/SMTP_PASSWORD; no se enviarán correos de verificación ni reportes.');
+  }
 
   _alApagar(() async {
     stdout.writeln('Apagando la API…');
