@@ -10,3 +10,8 @@ services:
   web:
     ports:
       - "8080:80"
+
+# En tu máquina no existe la red "coolify" de Coolify: se crea una local.
+networks:
+  coolify:
+    external: false

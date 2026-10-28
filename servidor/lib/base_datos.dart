@@ -31,6 +31,33 @@ class BaseDatos {
     _pool = _poolDe(configuracion, 8);
   }
 
+  /// Repite `SELECT 1` hasta que la base responda o se agoten los [intentos].
+  ///
+  /// Evita que la API se caiga en bucle cuando PostgreSQL arranca después
+  /// que ella (reinicio del servidor). Los mensajes muestran host y puerto,
+  /// nunca la contraseña. Lanza el último error si nunca respondió.
+  Future<void> esperarConexion({
+    int intentos = 10,
+    Duration espera = const Duration(seconds: 3),
+  }) async {
+    for (var intento = 1;; intento++) {
+      try {
+        await pool.execute('SELECT 1');
+        return;
+      } catch (error) {
+        final destino = '${configuracion.host}:${configuracion.puertoBaseDatos}';
+        stderr.writeln(
+          'PostgreSQL en $destino no responde (intento $intento de $intentos): '
+          '${describirErrorConexion(error)}',
+        );
+        if (intento >= intentos) {
+          rethrow;
+        }
+        await Future<void>.delayed(espera);
+      }
+    }
+  }
+
   /// Abre una conexión temporal y ejecuta `SELECT 1`. No cambia el pool activo.
   Future<void> probar(Configuracion candidata) async {
     final temporal = _poolDe(candidata, 1);
@@ -99,6 +126,24 @@ class BaseDatos {
       }
     });
   }
+}
+
+/// Explica en una línea por qué falló la conexión, con una pista para Coolify.
+///
+/// No incluye la URL: el texto de [error] trae host y puerto, nunca la contraseña.
+String describirErrorConexion(Object error) {
+  final texto = error.toString().split('\n').first;
+  if (texto.contains('Failed host lookup')) {
+    return '$texto. El host no existe en las redes de este contenedor: '
+        'revisa que "api" esté en la misma red de Docker que la base.';
+  }
+  if (texto.contains('password authentication failed')) {
+    return '$texto. La contraseña de DATABASE_URL no coincide con la de la base.';
+  }
+  if (texto.contains('Connection refused')) {
+    return '$texto. El host existe pero nada escucha en ese puerto.';
+  }
+  return texto;
 }
 
 /// Separa un script SQL por `;`, respetando comentarios `--` y bloques `$$`.

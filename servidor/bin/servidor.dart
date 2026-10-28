@@ -11,7 +11,7 @@ import 'package:mercado_liebre_api/token_sesion.dart';
 
 /// Arranque de la API.
 ///
-/// Orden: leer entorno, abrir PostgreSQL, aplicar el esquema si está
+/// Orden: leer entorno, abrir PostgreSQL (con reintentos), aplicar el esquema si está
 /// pedido, y escuchar HTTP. Los mensajes de consola no incluyen la URL
 /// ni la contraseña de la base.
 ///
@@ -21,6 +21,8 @@ Future<void> main() async {
   final configuracion = await Configuracion.cargar();
   final base = BaseDatos(configuracion);
   await base.abrir();
+  stdout.writeln('Conectando con PostgreSQL…');
+  await base.esperarConexion();
   if (configuracion.aplicarEsquema) {
     stdout.writeln('Aplicando esquema de PostgreSQL…');
     await base.aplicarEsquema();

@@ -23,7 +23,7 @@ en los dos paquetes que hayas tocado.
 
 ```
 servidor/
-  bin/servidor.dart      Arranque: entorno → pool → esquema → admin inicial → HTTP. Apagado con SIGTERM.
+  bin/servidor.dart      Arranque: entorno → pool (con reintentos) → esquema → admin inicial → HTTP. Apagado con SIGTERM.
   lib/configuracion.dart Variables de entorno (+ .env local). Nunca imprime secretos.
   lib/base_datos.dart    Pool de PostgreSQL, aplicar schema.sql, cambiar de conexión en caliente.
   lib/rutas.dart         TODAS las rutas HTTP + autorización por rol (_Sesion) + errores → JSON.

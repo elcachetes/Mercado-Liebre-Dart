@@ -17,7 +17,7 @@ services:
     environment:
       # "Postgres URL (internal)" del recurso PostgreSQL de Coolify:
       # postgres://postgres:CLAVE@olnvwfuraw4m5maauwuldus1:5432/postgres
-      # Requiere "Connect To Predefined Network" en este recurso.
+      # El host solo se resuelve en la red "coolify" (ver "networks" abajo).
       DATABASE_URL: ${DATABASE_URL:?}
       DATABASE_SSL: ${DATABASE_SSL:-false}
       APP_SECRET_KEY: ${APP_SECRET_KEY:?}
@@ -30,6 +30,11 @@ services:
       DATOS_PATH: /app/datos
     volumes:
       - datos_api:/app/datos
+    # default: para que nginx la encuentre como "api".
+    # coolify: red donde Coolify pone los recursos PostgreSQL.
+    networks:
+      - default
+      - coolify
     expose:
       - "8080"
     stop_grace_period: 15s
@@ -49,3 +54,9 @@ services:
 
 volumes:
   datos_api:
+
+networks:
+  # Red que Coolify crea al instalarse. Si la base vive en otro destino,
+  # cambia el nombre por el de su red (docker inspect <uuid-de-la-base>).
+  coolify:
+    external: true

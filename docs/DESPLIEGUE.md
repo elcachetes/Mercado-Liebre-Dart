@@ -95,9 +95,13 @@ Verifica que `.env` **no** aparezca en `git status` (está en `.gitignore`).
    - **Build Pack:** `Docker Compose`.
    - **Branch:** `main`. **Docker Compose Location:** `/docker-compose.yml`.
    - Coolify lee el compose y muestra dos servicios: `api` y `web`.
-4. En la configuración del recurso de la app activa **Connect To Predefined
-   Network**. Sin esto la API no resuelve el nombre `<uuid-del-recurso>` de la
-   base y el arranque falla con un error de conexión.
+4. Red: el compose ya une `api` a la red externa `coolify`, donde Coolify pone
+   los recursos PostgreSQL; así la API resuelve `<uuid-del-recurso>`. Deja
+   **Connect To Predefined Network** *desactivado*: esa opción renombra los
+   servicios (`api` → `api-<uuid>`) y nginx dejaría de encontrar `api:8080`.
+   Comprueba en qué red está la base con
+   `docker inspect <uuid-del-recurso> --format '{{json .NetworkSettings.Networks}}'`;
+   si no es `coolify`, cambia ese nombre al final de `docker-compose.yml`.
 
 ### 4.1 Variables de entorno
 
@@ -134,6 +138,7 @@ Pulsa **Deploy**. El primer build tarda 5–10 minutos (descarga Flutter y Dart)
 En **Logs** de `api` deberías ver:
 
 ```
+Conectando con PostgreSQL…
 Aplicando esquema de PostgreSQL…
 Esquema listo.
 Comprobando la cuenta de administrador…
@@ -184,7 +189,7 @@ respaldos de la base. Respáldalo con
 | Build de `web` termina en `Killed` o `exit code 137` | Falta memoria. Agrega swap (1.3) o usa un servidor de 4 GB. |
 | `api` reinicia con `Falta DATABASE_URL` o `APP_SECRET_KEY debe tener…` | Faltan variables en Coolify (4.1). |
 | `api` no conecta: `password authentication failed` | La contraseña de `DATABASE_URL` no es la del recurso PostgreSQL. Cópiala de nuevo de su *Postgres URL (internal)*. |
-| `api` no conecta: `Failed host lookup` o `SocketException` | Falta **Connect To Predefined Network** (paso 4), o `DATABASE_URL` usa la IP pública en vez del host interno. |
+| `api` no conecta: `Failed host lookup` | `api` y la base no comparten red de Docker. Revisa con `docker inspect` en qué red está la base (paso 4) y que `DATABASE_URL` use el host interno, no la IP pública. La API reintenta 10 veces (≈30 s) antes de reiniciarse. |
 | La API ignora el `DATABASE_URL` nuevo | Un admin guardó otra conexión desde el panel (`/app/datos/conexion.json`, que tiene prioridad). Usa *Restaurar la del entorno* en el panel o borra ese archivo y reinicia `api`. |
 | 502 Bad Gateway en `/api/...` y `/salud` | `api` no está sana o no escucha en 8080. Revisa sus logs; `web` reenvía a `api:8080`, así que `PORT` debe ser `8080`. |
 | `Permission denied` al subir fotos tras actualizar | El volumen `datos_api` se creó cuando la API corría como root. Una sola vez: `docker run --rm -v NOMBRE_VOLUMEN_DATOS:/d alpine chown -R 10001 /d` y reinicia `api`. |
