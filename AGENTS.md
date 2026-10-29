@@ -29,28 +29,37 @@ servidor/
   lib/rutas.dart         TODAS las rutas HTTP + autorización por rol (_Sesion) + errores → JSON.
   lib/repositorio.dart   TODO el SQL y las reglas de negocio. Devuelve Map con claves camelCase.
   lib/plano.dart         Códigos válidos del mapa (A…ZZ, 1…8).
-  lib/apariencia.dart    Claves de apariencia editables y sus valores por defecto.
+  lib/apariencia.dart    Claves de apariencia editables y sus valores por defecto. Límites de publicidad (2 secciones × 3).
   lib/contrasena.dart    Hash PBKDF2 (compatible con la app Python anterior; no cambiar iteraciones).
   lib/token_sesion.dart  Token HS256 de 7 días.
   lib/medios.dart        Fotos subidas por el admin en DATOS_PATH/medios.
-  lib/correo.dart        SMTP (Zoho): correo de verificación y de reportes. Config en ConfiguracionCorreo.
+  lib/correo.dart        SMTP (Zoho): verificación, restablecimiento de contraseña y reportes. Config en ConfiguracionCorreo.
   lib/reportes.dart      Validación de POST /api/reportes (contacto, descripción, foto).
 cliente/lib/
   main.dart              Raíz: ListenableBuilder sobre EstadoApp, tema claro/oscuro.
   configuracion.dart     API_BASE_URL (dart-define). "same" = mismo dominio (producción).
   servicios/api.dart     ClienteApi: un método por endpoint. Todo error → ErrorApi.
-  servicios/estado.dart  EstadoApp (ChangeNotifier): sesión, tema, apariencia, favoritos.
-  modelos/modelos.dart   Usuario, Vendedor, Producto, Calificacion, Apariencia, Aviso… con fromJson.
+  servicios/estado.dart  EstadoApp (ChangeNotifier): sesión, tema, apariencia, anuncios, favoritos, eliminarCuenta.
+  servicios/instalacion.dart  InstalacionApp: botón "Instalar app" (PWA). Web: instalacion_web.dart ↔ window.liebrePwa de web/index.html.
+  modelos/modelos.dart   Usuario, Vendedor, Producto, Calificacion, Apariencia, Aviso, Anuncio, Restablecimiento,
+                         ResenaAdmin, PaginaTabla… con fromJson.
   pantallas/             Una pantalla por archivo. marco.dart = barra roja con las pestañas,
                          botón Reportar, menú de la cuenta y barra lateral de publicidad.
   pantallas/perfil_pantalla.dart  SeccionCuenta: cada opción del menú del nombre es una página.
+  pantallas/panel_negocio.dart    "Mi negocio": catálogo (foto de galería o cámara con image_picker), horario, contacto, eliminar cuenta.
+  pantallas/panel_admin.dart      PanelAdmin: página con pestañas. Lista `pestanas`; cada una vive en pantallas/admin/.
+  pantallas/admin/       Una pestaña por archivo (admin_usuarios, admin_vendedores, admin_mapa, admin_publicidad,
+                         admin_avisos, admin_resenas, admin_contrasenas, admin_base_datos, admin_apariencia, admin_resumen).
+                         comun_admin.dart: CargaAdmin (carga/error/recargar), BuscadorAdmin, Etiqueta, fechaCorta, subirImagenAdmin.
   widgets/comunes.dart   mostrarAviso, intentar, confirmar, EstadoVacio, TituloSeccion, ImagenRed, Estrellas.
   widgets/comunes.dart   (también LogoLiebre: el icono de la app dentro de la interfaz)
   widgets/tarjeta_vendedor.dart  Tarjeta de negocio + iconoCategoria + ubicacionDe.
   widgets/tarjeta_producto.dart  TarjetaProducto y MiniaturaProducto (foto o icono).
   widgets/datos_opcionales.dart  CamposOpcionales (teléfono, nº de control, carrera), carrerasItcj, ValidarOpcional.
   widgets/selector_dias.dart     SelectorDias + diasDesdeTexto/textoDeDias ("Lun-Vie", "Lun, Mié, Vie").
-  widgets/publicidad.dart        BarraPublicidad (dos anuncios) y EspacioPublicitario.
+  widgets/publicidad.dart        BarraPublicidad (dos carruseles) y EspacioPublicitario (carrusel: rota cada duracionAnuncio, toca → ficha).
+  widgets/eliminar_cuenta.dart   TarjetaEliminarCuenta + DialogoEliminarCuenta (pide contraseña, vuelve a Inicio).
+  widgets/instalar_app.dart      BotonInstalar (barra roja), InvitacionInstalar (Inicio en celular), instalarApp.
   widgets/reporte_dialogo.dart   mostrarReporte: formulario de fallas, quejas y sugerencias.
   widgets/verificacion.dart      AvisoVerificacion: "verifica tu correo" con reenviar.
   servicios/imagenes.dart        comprimirFoto: reduce fotos a 1280 px JPEG antes de subirlas.
@@ -58,6 +67,11 @@ cliente/lib/
   tema/tema_liebre.dart  ColoresLiebre (marca), Espacio (separaciones), temaLiebre().
   mapa/puntos_campus.dart  Geometría de cada edificio sobre assets/mapa_plantel.jpg (1024×549).
   assets/icono/liebre.svg  Fuente del icono (solo el dibujo). Regenerar: python herramientas/generar_iconos.py
+cliente/web/
+  index.html             Pantalla de carga, window.liebrePwa (beforeinstallprompt) y registro de sw.js.
+  flutter_bootstrap.js   Plantilla propia del arranque: sin el service worker obsoleto de Flutter, CanvasKit local.
+  sw.js                  Service worker de la PWA ("primero la red"; nunca toca /api ni /medios). Sube CACHE si lo cambias.
+  manifest.json          Nombre, colores e iconos de la app instalable.
 db/schema.sql            Idempotente (IF NOT EXISTS). Se ejecuta en cada arranque de la API.
 herramientas/            Scripts de mantenimiento (generar_iconos.py).
 ```
@@ -88,14 +102,20 @@ herramientas/            Scripts de mantenimiento (generar_iconos.py).
 | Si cambias…                                       | …también cambia                                                        |
 |---------------------------------------------------|------------------------------------------------------------------------|
 | Un punto del mapa (`cliente/lib/mapa/puntos_campus.dart`) | `servidor/lib/plano.dart`. El test `plano_sincronizado_test` lo exige. |
-| Una clave de apariencia (`servidor/lib/apariencia.dart`)  | Clase `Apariencia` en `cliente/lib/modelos/modelos.dart` (campo, `fromJson`, `toJson`, `predeterminada`) y `panel_admin.dart`. |
+| Una clave de apariencia (`servidor/lib/apariencia.dart`)  | Clase `Apariencia` en `cliente/lib/modelos/modelos.dart` (campo, `fromJson`, `toJson`, `predeterminada`) y `pantallas/admin/admin_apariencia.dart`. |
+| Número de carruseles o de imágenes (`seccionesPublicidad`, `anunciosPorSeccion`) | `CHECK` de la tabla `anuncios` en `schema.sql`, `Anuncio.secciones/porSeccion` en el cliente. |
+| Tiempo de cada anuncio                            | Solo `duracionAnuncio` en `widgets/publicidad.dart` (el texto de `admin_publicidad.dart` lo lee de ahí). |
+| Algo que pertenece a una cuenta (tabla nueva con `user_id` o `seller_id`) | `ON DELETE CASCADE` en la llave foránea, para que "Eliminar cuenta" lo borre. Si guarda archivos en `/medios`, devuélvelos en `Repositorio.eliminarUsuario`. |
+| Una tabla que el admin deba poder consultar       | `Repositorio.tablasVisibles` (columnas fijas, nunca `password_hash`) y `_nombres` en `admin_base_datos.dart`. |
+| Una pestaña del panel de administración           | Archivo en `pantallas/admin/` y entrada en `PanelAdmin.pestanas`. |
+| Vigencia del enlace de contraseña (1 h)           | `vigenciaRestablecimiento` en `rutas.dart` y los textos "vence en una hora" del cliente. |
 | Un icono de menú (`iconosDeMenu` en el servidor)  | `nombresDeIcono` e `iconoMenu()` en `cliente/lib/tema/iconos_menu.dart`. |
 | Un campo que devuelve la API                      | `Repositorio._vendedor/_producto/_usuario` y el `fromJson` del modelo.  |
 | Una columna o tabla                               | `db/schema.sql` con `ADD COLUMN IF NOT EXISTS` (el script corre en cada arranque sobre bases existentes). |
 | Una ruta                                          | `rutas.dart`, método en `ClienteApi` y [docs/API.md](docs/API.md).      |
-| Roles o categorías                                | Enums `user_role` / `seller_category` en `schema.sql`, validación en `Repositorio._crearCuenta`, listas en `sesion_dialogo.dart` (`categoriasNegocio`) y `panel_admin.dart`. |
+| Roles o categorías                                | Enums `user_role` / `seller_category` en `schema.sql`, validación en `Repositorio._crearCuenta` y `actualizarUsuarioAdmin`/`actualizarVendedorAdmin`, listas `categoriasNegocio` (`sesion_dialogo.dart`) y `rolesCuenta` (`admin/admin_usuarios.dart`). |
 | Validación de teléfono / nº de control            | `Repositorio._datosOpcionales` (servidor) y `ValidarOpcional` (cliente). |
-| Límite de tamaño de imagen (1.5 MB)               | `Medios.maximoBytes` (también lo usa `Reporte`), `panel_admin.dart` y `comprimirFoto` (1280 px). |
+| Límite de tamaño de imagen (1.5 MB)               | `Medios.maximoBytes` (también lo usa `Reporte`), `subirImagenAdmin` en `admin/comun_admin.dart` y `comprimirFoto` (1280 px). |
 | Regla del contacto de un reporte                  | `Reporte._contactoValido` (servidor) y `validarContactoReporte` (cliente). |
 | Largo de la descripción de un reporte (1000)      | `Reporte.maximoDescripcion` y `maximoDescripcionReporte`.               |
 | El dibujo del icono                               | Edita `cliente/assets/icono/liebre.svg` y corre `python herramientas/generar_iconos.py` (necesita Edge y Pillow). Regenera web, Android, iOS, Windows y el logo interno. |
@@ -122,6 +142,14 @@ ALTER TABLE sellers ADD COLUMN IF NOT EXISTS facebook TEXT;
 
 Luego expónla en `Repositorio._vendedor` y en `Vendedor` (modelo + `fromJson`).
 
+### Agregar una pestaña al panel de administración
+
+1. Crea `cliente/lib/pantallas/admin/admin_algo.dart` con un widget que reciba
+   `EstadoApp estado` y use `CargaAdmin<T>(cargar: …, construir: (context, datos, recargar) => [...])`.
+2. Agrégalo a `PanelAdmin.pestanas` (título, icono, constructor).
+3. Las rutas nuevas van bajo `/api/admin/...` y empiezan con `await sesion.admin(request)`.
+4. Acciones destructivas con `confirmar(...)`; guardar con `intentar(..., exito: '…')` y luego `recargar()`.
+
 ### Agregar una pantalla o sección
 
 Usa `ListView` con `padding: EdgeInsets.all(Espacio.l)`, títulos con
@@ -141,3 +169,10 @@ Usa `ListView` con `padding: EdgeInsets.all(Espacio.l)`, títulos con
 - El enlace de verificación se firma con una llave derivada (`APP_SECRET_KEY|verificar-correo`):
   un token de sesión no sirve para verificar ni viceversa.
 - Las rutas que envían correo tienen límite en memoria (`_Limite` en `rutas.dart`).
+- El enlace de restablecimiento usa otra llave derivada (`APP_SECRET_KEY|restablecer-contrasena`),
+  apunta a una fila de `restablecimientos` y solo sirve una vez. `/api/contrasena/olvido` responde
+  igual exista o no la cuenta (y envía en segundo plano) para no revelar qué correos están registrados.
+- `DELETE /api/yo` pide la contraseña; un administrador no puede borrarse a sí mismo ni quitarse su rol.
+- El explorador de registros es de **solo lectura** y arma el SQL con nombres de `tablasVisibles`,
+  nunca con texto del cliente.
+- El service worker (`web/sw.js`) nunca guarda en caché `/api/` ni `/medios/`.

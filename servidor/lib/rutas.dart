@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -39,6 +40,36 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
   final tokensCorreo = TokenSesion('${tokens.llave}|verificar-correo', vigencia: const Duration(hours: 48));
   final limiteReportes = _Limite(5, const Duration(hours: 1));
   final limiteVerificacion = _Limite(1, const Duration(minutes: 1));
+  // Restablecimiento de contraseña: otra llave derivada, así ni un token de
+  // sesión ni uno de verificación sirven para cambiar contraseñas.
+  const vigenciaRestablecimiento = Duration(hours: 1);
+  final tokensRestablecer = TokenSesion('${tokens.llave}|restablecer-contrasena', vigencia: vigenciaRestablecimiento);
+  final limiteOlvidoIp = _Limite(5, const Duration(hours: 1));
+  final limiteOlvidoCorreo = _Limite(1, const Duration(minutes: 1));
+
+  /// Crea una solicitud de restablecimiento para [usuario] y le manda el enlace.
+  /// Devuelve si el correo salió. [origen] es `correo` o `admin`.
+  Future<bool> enviarRestablecimiento(Request request, Map<String, dynamic> usuario, {required String origen}) async {
+    final solicitud = await repositorio.crearRestablecimiento(
+      usuario['id'] as String,
+      origen: origen,
+      vigencia: vigenciaRestablecimiento,
+    );
+    final enlace =
+        '${_urlPublica(request, cartero.configuracion)}/api/restablecer?token=${tokensRestablecer.emitir(solicitud)}';
+    try {
+      await cartero.enviarRestablecimiento(
+        para: usuario['correo'] as String,
+        nombre: usuario['nombre'] as String,
+        enlace: enlace,
+        vigencia: vigenciaRestablecimiento,
+      );
+      return true;
+    } on ErrorApi catch (error) {
+      stderr.writeln('Restablecimiento de ${usuario['id']} no enviado: ${error.mensaje}');
+      return false;
+    }
+  }
 
   /// Manda el enlace de verificación a [usuario]. Devuelve si se pudo enviar.
   Future<bool> enviarVerificacion(Request request, Map<String, dynamic> usuario) async {
@@ -114,6 +145,85 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
   router.patch('/api/yo', (Request request) async {
     final usuario = await sesion.usuario(request);
     return _json(200, await repositorio.actualizarPerfil(usuario['id'] as String, await _cuerpo(request)));
+  });
+
+  // Borra la cuenta de la sesión con todo lo suyo. Pide la contraseña para
+  // que un celular prestado o una sesión olvidada no baste para hacerlo.
+  router.delete('/api/yo', (Request request) async {
+    final usuario = await sesion.usuario(request);
+    final password = ((await _cuerpo(request))['password'] ?? '').toString();
+    if (password.isEmpty) {
+      throw ErrorApi(400, 'Escribe tu contraseña para confirmar.');
+    }
+    final fotos = await repositorio.eliminarCuentaPropia(usuario['id'] as String, password);
+    for (final foto in fotos) {
+      await medios.borrar(foto);
+    }
+    return _json(200, {'ok': true});
+  });
+
+  // ── Contraseña olvidada ───────────────────────────────────────────────
+  router.post('/api/contrasena/olvido', (Request request) async {
+    if (!limiteOlvidoIp.permitir(_ip(request))) {
+      throw ErrorApi(429, 'Pediste varios enlaces seguidos. Inténtalo de nuevo en una hora.');
+    }
+    final correo = _texto(await _cuerpo(request), 'correo').toLowerCase();
+    if (!correo.contains('@') || !correo.contains('.')) {
+      throw ErrorApi(400, 'Escribe el correo de tu cuenta.');
+    }
+    if (!cartero.configuracion.configurado) {
+      throw ErrorApi(503, 'El envío de correos no está configurado. Pide ayuda a la administración.');
+    }
+    // La respuesta es la misma exista o no la cuenta, y el envío corre aparte
+    // para que el tiempo de respuesta tampoco delate qué correos están registrados.
+    if (limiteOlvidoCorreo.permitir(correo)) {
+      unawaited(() async {
+        try {
+          final usuario = await repositorio.usuarioPorCorreo(correo);
+          if (usuario != null && usuario['bloqueado'] != true) {
+            await enviarRestablecimiento(request, usuario, origen: 'correo');
+          }
+        } catch (error) {
+          stderr.writeln('Fallo al preparar un restablecimiento: $error');
+        }
+      }());
+    }
+    return _json(200, {'ok': true});
+  });
+
+  // El enlace del correo abre esta página (HTML) con el formulario.
+  router.get('/api/restablecer', (Request request) async {
+    final token = request.url.queryParameters['token'] ?? '';
+    final solicitud = tokensRestablecer.leer(token);
+    final inicio = _urlPublica(request, cartero.configuracion);
+    if (solicitud == null || !await repositorio.restablecimientoVigente(solicitud)) {
+      return _pagina(400, 'Enlace no válido', _enlaceRestablecerVencido, inicio);
+    }
+    return _formularioContrasena(token: token);
+  });
+
+  // El formulario de la página anterior se envía aquí (application/x-www-form-urlencoded).
+  router.post('/api/restablecer', (Request request) async {
+    final campos = Uri.splitQueryString(await request.readAsString());
+    final token = campos['token'] ?? '';
+    final password = campos['password'] ?? '';
+    final inicio = _urlPublica(request, cartero.configuracion);
+    final solicitud = tokensRestablecer.leer(token);
+    if (solicitud == null) {
+      return _pagina(400, 'Enlace no válido', _enlaceRestablecerVencido, inicio);
+    }
+    if (password.length < 8) {
+      return _formularioContrasena(token: token, error: 'La contraseña debe tener al menos 8 caracteres.');
+    }
+    if (password != campos['confirmacion']) {
+      return _formularioContrasena(token: token, error: 'Las dos contraseñas no coinciden.');
+    }
+    try {
+      await repositorio.restablecerContrasena(solicitud, password);
+    } on ErrorApi catch (error) {
+      return _pagina(error.estado, 'No se pudo cambiar', error.mensaje, inicio);
+    }
+    return _pagina(200, '¡Contraseña actualizada!', 'Ya puedes entrar a Mercado Liebre con tu contraseña nueva.', inicio);
   });
 
   // ── Vendedores ────────────────────────────────────────────────────────
@@ -350,8 +460,167 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
   router.delete('/api/moderacion/usuarios/<id>', (Request request, String id) async {
     final actor = await sesion.admin(request);
     await _otraCuenta(repositorio, actor, id);
-    await repositorio.eliminarUsuario(id);
+    for (final foto in await repositorio.eliminarUsuario(id)) {
+      await medios.borrar(foto);
+    }
     return _json(200, {'ok': true});
+  });
+
+  // ── Publicidad ────────────────────────────────────────────────────────
+  router.get('/api/anuncios', (Request request) async {
+    return _json(200, await repositorio.anuncios());
+  });
+
+  router.put('/api/admin/anuncios/<seccion>/<posicion>', (Request request, String seccion, String posicion) async {
+    await sesion.admin(request);
+    final (numeroSeccion, numeroPosicion) = _posicionAnuncio(seccion, posicion);
+    final cuerpo = await _cuerpo(request);
+    final imagen = _urlImagen(_texto(cuerpo, 'imagenUrl'));
+    if (imagen.isEmpty) {
+      throw ErrorApi(400, 'El anuncio necesita una imagen.');
+    }
+    final vendedor = _texto(cuerpo, 'vendedorId');
+    await repositorio.guardarAnuncio(
+      seccion: numeroSeccion,
+      posicion: numeroPosicion,
+      imagenUrl: imagen,
+      sellerId: vendedor.isEmpty ? null : vendedor,
+    );
+    return _json(200, await repositorio.anuncios());
+  });
+
+  router.delete('/api/admin/anuncios/<seccion>/<posicion>', (Request request, String seccion, String posicion) async {
+    await sesion.admin(request);
+    final (numeroSeccion, numeroPosicion) = _posicionAnuncio(seccion, posicion);
+    await repositorio.eliminarAnuncio(numeroSeccion, numeroPosicion);
+    return _json(200, await repositorio.anuncios());
+  });
+
+  // ── Administración: tablero, cuentas y contraseñas ────────────────────
+  router.get('/api/admin/resumen', (Request request) async {
+    await sesion.admin(request);
+    return _json(200, await repositorio.resumen());
+  });
+
+  router.patch('/api/admin/usuarios/<id>', (Request request, String id) async {
+    final actor = await sesion.admin(request);
+    return _json(
+      200,
+      await repositorio.actualizarUsuarioAdmin(id, await _cuerpo(request), actorId: actor['id'] as String),
+    );
+  });
+
+  router.post('/api/admin/usuarios/<id>/contrasena', (Request request, String id) async {
+    await sesion.admin(request);
+    final password = ((await _cuerpo(request))['password'] ?? '').toString();
+    await repositorio.cambiarContrasenaAdmin(id, password);
+    return _json(200, {'ok': true});
+  });
+
+  router.post('/api/admin/usuarios/<id>/restablecimiento', (Request request, String id) async {
+    await sesion.admin(request);
+    if (!cartero.configuracion.configurado) {
+      throw ErrorApi(503, 'El envío de correos no está configurado. Usa "Fijar contraseña" en su lugar.');
+    }
+    final usuario = await repositorio.obtenerUsuario(id);
+    if (usuario == null) {
+      throw ErrorApi(404, 'No se encontró la cuenta.');
+    }
+    if (!await enviarRestablecimiento(request, usuario, origen: 'admin')) {
+      throw ErrorApi(502, 'No se pudo enviar el correo. Inténtalo más tarde.');
+    }
+    return _json(200, {'ok': true, 'correo': usuario['correo']});
+  });
+
+  router.get('/api/admin/restablecimientos', (Request request) async {
+    await sesion.admin(request);
+    return _json(200, await repositorio.listarRestablecimientos());
+  });
+
+  router.post('/api/admin/restablecimientos/<id>/anular', (Request request, String id) async {
+    await sesion.admin(request);
+    await repositorio.anularRestablecimiento(id);
+    return _json(200, {'ok': true});
+  });
+
+  // ── Administración: negocios, productos y mapa ────────────────────────
+  router.patch('/api/admin/vendedores/<id>', (Request request, String id) async {
+    await sesion.admin(request);
+    final cuerpo = await _cuerpo(request);
+    if (cuerpo.containsKey('edificio')) {
+      final codigo = _texto(cuerpo, 'edificio').toUpperCase();
+      if (codigo.isNotEmpty && !codigosDelPlano.contains(codigo)) {
+        throw ErrorApi(400, 'Ese punto no existe en el mapa del plantel.');
+      }
+      cuerpo['edificio'] = codigo;
+    }
+    return _json(200, await repositorio.actualizarVendedorAdmin(id, cuerpo));
+  });
+
+  router.delete('/api/admin/vendedores/<id>', (Request request, String id) async {
+    await sesion.admin(request);
+    for (final foto in await repositorio.eliminarNegocio(id)) {
+      await medios.borrar(foto);
+    }
+    return _json(200, {'ok': true});
+  });
+
+  router.delete('/api/admin/productos/<id>', (Request request, String id) async {
+    await sesion.admin(request);
+    await medios.borrar(await repositorio.eliminarProductoAdmin(id));
+    return _json(200, {'ok': true});
+  });
+
+  // ── Administración: avisos y reseñas ──────────────────────────────────
+  router.get('/api/admin/avisos', (Request request) async {
+    await sesion.admin(request);
+    return _json(200, await repositorio.avisosAdmin());
+  });
+
+  router.post('/api/admin/avisos', (Request request) async {
+    await sesion.admin(request);
+    return _json(201, await repositorio.crearAviso(await _cuerpo(request)));
+  });
+
+  router.patch('/api/admin/avisos/<id>', (Request request, String id) async {
+    await sesion.admin(request);
+    return _json(200, await repositorio.actualizarAviso(id, await _cuerpo(request)));
+  });
+
+  router.delete('/api/admin/avisos/<id>', (Request request, String id) async {
+    await sesion.admin(request);
+    await repositorio.eliminarAviso(id);
+    return _json(200, {'ok': true});
+  });
+
+  router.get('/api/admin/calificaciones', (Request request) async {
+    await sesion.admin(request);
+    return _json(200, await repositorio.calificacionesRecientes());
+  });
+
+  router.delete('/api/admin/calificaciones/<producto>/<autor>', (Request request, String producto, String autor) async {
+    await sesion.admin(request);
+    await repositorio.eliminarCalificacion(producto, autor);
+    return _json(200, {'ok': true});
+  });
+
+  // ── Administración: explorador de registros (solo lectura) ────────────
+  router.get('/api/admin/tablas', (Request request) async {
+    await sesion.admin(request);
+    return _json(200, await repositorio.contarTablas());
+  });
+
+  router.get('/api/admin/tablas/<tabla>', (Request request, String tabla) async {
+    await sesion.admin(request);
+    final parametros = request.url.queryParameters;
+    return _json(
+      200,
+      await repositorio.leerTabla(
+        tabla,
+        pagina: int.tryParse(parametros['pagina'] ?? '') ?? 1,
+        limite: int.tryParse(parametros['limite'] ?? '') ?? 25,
+      ),
+    );
   });
 
   // ── Apariencia y medios ───────────────────────────────────────────────
@@ -545,31 +814,58 @@ String _valorApariencia(String clave, String valor) {
     return limpio;
   }
   if (clave.endsWith('Url')) {
-    if (limpio.isEmpty) {
-      return '';
-    }
-    final permitida = limpio.startsWith('https://') ||
-        limpio.startsWith('http://') ||
-        limpio.startsWith('/medios/');
-    if (!permitida || limpio.length > 500) {
-      throw ErrorApi(400, 'La imagen debe ser una URL http(s) o una foto subida.');
-    }
-    return limpio;
-  }
-  if (clave.endsWith('Enlace')) {
-    // Destino al tocar un anuncio. Solo http(s): nada de javascript: ni rutas locales.
-    if (limpio.isEmpty) {
-      return '';
-    }
-    if (!(limpio.startsWith('https://') || limpio.startsWith('http://')) || limpio.length > 500) {
-      throw ErrorApi(400, 'El enlace del anuncio debe empezar con http:// o https://.');
-    }
-    return limpio;
+    return _urlImagen(limpio);
   }
   if (limpio.isEmpty || limpio.length > 40) {
     throw ErrorApi(400, 'El texto del menú debe tener entre 1 y 40 caracteres.');
   }
   return limpio;
+}
+
+/// Imagen `http(s)://…` o `/medios/…` (subida al servidor). Vacía se respeta.
+///
+/// Nada de `javascript:` ni `data:`: la URL se pinta tal cual en la app.
+String _urlImagen(String valor) {
+  final limpio = valor.trim();
+  if (limpio.isEmpty) {
+    return '';
+  }
+  final permitida = limpio.startsWith('https://') || limpio.startsWith('http://') || limpio.startsWith('/medios/');
+  if (!permitida || limpio.length > 500) {
+    throw ErrorApi(400, 'La imagen debe ser una URL http(s) o una foto subida.');
+  }
+  return limpio;
+}
+
+/// Sección (1–[seccionesPublicidad]) y posición (1–[anunciosPorSeccion]) de la URL.
+(int, int) _posicionAnuncio(String seccion, String posicion) {
+  final s = int.tryParse(seccion) ?? 0;
+  final p = int.tryParse(posicion) ?? 0;
+  if (s < 1 || s > seccionesPublicidad || p < 1 || p > anunciosPorSeccion) {
+    throw ErrorApi(404, 'Esa posición de publicidad no existe.');
+  }
+  return (s, p);
+}
+
+const String _enlaceRestablecerVencido =
+    'El enlace venció, ya se usó o está incompleto. En Mercado Liebre toca "Entrar" → "¿Olvidaste tu contraseña?" '
+    'para pedir otro.';
+
+/// Página con el formulario para elegir contraseña nueva. [token] va oculto.
+Response _formularioContrasena({required String token, String? error}) {
+  const seguro = HtmlEscape();
+  final aviso = error == null ? '' : '<p class="error">${seguro.convert(error)}</p>';
+  return _paginaHtml(200, 'Contraseña nueva', '''
+<h1>Elige tu contraseña nueva</h1>
+$aviso
+<form method="post" action="/api/restablecer">
+  <input type="hidden" name="token" value="${seguro.convert(token)}">
+  <label>Contraseña nueva<input type="password" name="password" minlength="8" required autocomplete="new-password"></label>
+  <label>Repítela<input type="password" name="confirmacion" minlength="8" required autocomplete="new-password"></label>
+  <button type="submit">Guardar contraseña</button>
+</form>
+<p class="nota">Mínimo 8 caracteres. El enlace sirve una sola vez.</p>
+''');
 }
 
 Configuracion _candidata(Repositorio repositorio, Map<String, dynamic> cuerpo) {
@@ -694,18 +990,34 @@ String _urlPublica(Request request, ConfiguracionCorreo configuracion) {
 /// Página HTML breve para quien abre el enlace del correo en el navegador.
 Response _pagina(int estado, String titulo, String mensaje, String inicio) {
   const seguro = HtmlEscape();
+  return _paginaHtml(estado, titulo, '''
+<h1>${seguro.convert(titulo)}</h1><p>${seguro.convert(mensaje)}</p>
+<a class="boton" href="${seguro.convert(inicio)}">Ir a Mercado Liebre</a>
+''');
+}
+
+/// Esqueleto HTML con los estilos de la marca. [contenido] ya debe venir escapado.
+///
+/// `no-referrer`: el token de la URL no viaja a ningún otro sitio.
+Response _paginaHtml(int estado, String titulo, String contenido) {
+  const seguro = HtmlEscape();
   final cuerpo = '''
 <!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>${seguro.convert(titulo)} · Mercado Liebre</title>
 <style>
   body{margin:0;font-family:system-ui,sans-serif;background:#f5f5f5;color:#222;display:grid;place-items:center;min-height:100vh}
   main{background:#fff;max-width:420px;margin:16px;padding:32px;border-radius:12px;box-shadow:0 2px 12px #0002;text-align:center}
   h1{color:#d32f2f;font-size:1.4rem}
-  a{display:inline-block;margin-top:16px;background:#d32f2f;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none}
+  a.boton,button{display:inline-block;margin-top:16px;background:#d32f2f;color:#fff;padding:10px 18px;border:0;border-radius:6px;text-decoration:none;font:inherit;cursor:pointer}
+  form{text-align:left}
+  label{display:block;margin:12px 0;font-weight:600}
+  input{display:block;box-sizing:border-box;width:100%;margin-top:4px;padding:10px;border:1px solid #bbb;border-radius:6px;font:inherit}
+  .error{background:#fde7e9;color:#8a1020;padding:10px;border-radius:6px}
+  .nota{color:#666;font-size:.9rem}
 </style></head>
-<body><main><h1>${seguro.convert(titulo)}</h1><p>${seguro.convert(mensaje)}</p>
-<a href="${seguro.convert(inicio)}">Ir a Mercado Liebre</a></main></body></html>
+<body><main>$contenido</main></body></html>
 ''';
   return Response(estado, body: cuerpo, headers: {'content-type': 'text/html; charset=utf-8'});
 }

@@ -38,6 +38,137 @@ class Validar {
   static String? password(String? valor) => (valor ?? '').length < 8 ? 'Mínimo 8 caracteres' : null;
 }
 
+/// Recuadro del registro que pide un correo real: sin verificarlo la cuenta
+/// no califica ni comenta, y sin acceso a él no se recupera la contraseña.
+class AvisoCorreoReal extends StatelessWidget {
+  /// Sin parámetros.
+  const AvisoCorreoReal({super.key});
+
+  /// Texto del aviso; también lo buscan las pruebas.
+  static const String texto = 'Usa un correo real, que exista y al que tengas acceso. Te enviaremos un enlace '
+      'para verificarlo: sin verificarlo no podrás calificar ni comentar, y si olvidas tu contraseña solo '
+      'podrás recuperarla desde ese correo.';
+
+  @override
+  Widget build(BuildContext context) {
+    final esquema = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(Espacio.m),
+      decoration: BoxDecoration(color: esquema.tertiaryContainer, borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.mark_email_read_outlined, color: esquema.onTertiaryContainer),
+          const SizedBox(width: Espacio.s),
+          Expanded(child: Text(texto, style: TextStyle(color: esquema.onTertiaryContainer))),
+        ],
+      ),
+    );
+  }
+}
+
+/// Pide el correo y solicita el enlace para elegir una contraseña nueva.
+class _OlvidoContrasena extends StatefulWidget {
+  const _OlvidoContrasena({required this.estado, required this.correo});
+
+  final EstadoApp estado;
+
+  /// Lo que ya se escribió en el formulario de entrada.
+  final String correo;
+
+  @override
+  State<_OlvidoContrasena> createState() => _OlvidoContrasenaState();
+}
+
+class _OlvidoContrasenaState extends State<_OlvidoContrasena> {
+  final _formulario = GlobalKey<FormState>();
+  late final _correo = TextEditingController(text: widget.correo.trim());
+  bool _ocupado = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _correo.dispose();
+    super.dispose();
+  }
+
+  Future<void> _enviar() async {
+    if (_ocupado || !(_formulario.currentState?.validate() ?? false)) {
+      return;
+    }
+    setState(() {
+      _ocupado = true;
+      _error = null;
+    });
+    try {
+      await widget.estado.api.olvideContrasena(_correo.text);
+      if (mounted) {
+        Navigator.pop(context);
+        // El servidor no dice si la cuenta existe: el mensaje tampoco.
+        mostrarAviso(
+          context,
+          'Si hay una cuenta con ese correo, te enviamos un enlace para elegir una contraseña nueva. '
+          'Revisa también la carpeta de spam.',
+        );
+      }
+    } on ErrorApi catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = error.mensaje;
+          _ocupado = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final esquema = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Recuperar contraseña'),
+      content: SizedBox(
+        width: 400,
+        child: Form(
+          key: _formulario,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Escribe el correo de tu cuenta. Te mandaremos un enlace que vence en una hora.',
+                style: TextStyle(color: esquema.onSurfaceVariant),
+              ),
+              const SizedBox(height: Espacio.m),
+              TextFormField(
+                controller: _correo,
+                autofocus: true,
+                keyboardType: TextInputType.emailAddress,
+                autofillHints: const [AutofillHints.email],
+                decoration: const InputDecoration(labelText: 'Correo', prefixIcon: Icon(Icons.mail_outline)),
+                validator: Validar.correo,
+                onFieldSubmitted: (_) => _enviar(),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: Espacio.m),
+                Text(_error!, style: TextStyle(color: esquema.error)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _ocupado ? null : () => Navigator.pop(context), child: const Text('Cancelar')),
+        FilledButton(
+          onPressed: _ocupado ? null : _enviar,
+          child: _ocupado
+              ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Enviar enlace'),
+        ),
+      ],
+    );
+  }
+}
+
 class _FormularioSesion extends StatefulWidget {
   const _FormularioSesion({required this.estado, required this.registroInicial});
 
@@ -170,9 +301,16 @@ class _FormularioSesionState extends State<_FormularioSesion> {
                     ),
                     separacion,
                   ],
+                  if (_registro) ...[
+                    const AvisoCorreoReal(),
+                    const SizedBox(height: Espacio.s),
+                  ],
                   TextFormField(
                     controller: _correo,
-                    decoration: const InputDecoration(labelText: 'Correo', prefixIcon: Icon(Icons.mail_outline)),
+                    decoration: InputDecoration(
+                      labelText: _registro ? 'Correo real al que tengas acceso' : 'Correo',
+                      prefixIcon: const Icon(Icons.mail_outline),
+                    ),
                     keyboardType: TextInputType.emailAddress,
                     autofillHints: const [AutofillHints.email],
                     textInputAction: TextInputAction.next,
@@ -196,6 +334,19 @@ class _FormularioSesionState extends State<_FormularioSesion> {
                     onFieldSubmitted: (_) => _enviar(),
                     validator: _registro ? Validar.password : Validar.requerido,
                   ),
+                  if (!_registro)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _ocupado
+                            ? null
+                            : () => showDialog<void>(
+                                  context: context,
+                                  builder: (_) => _OlvidoContrasena(estado: widget.estado, correo: _correo.text),
+                                ),
+                        child: const Text('¿Olvidaste tu contraseña?'),
+                      ),
+                    ),
                   if (_registro) ...[
                     const SizedBox(height: Espacio.s),
                     Card(

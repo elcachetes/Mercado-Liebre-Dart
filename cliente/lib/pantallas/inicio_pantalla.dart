@@ -7,6 +7,7 @@ import '../servicios/api.dart';
 import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
+import '../widgets/instalar_app.dart';
 import '../widgets/tarjeta_producto.dart';
 import '../widgets/tarjeta_vendedor.dart';
 import 'detalle_producto.dart';
@@ -99,6 +100,8 @@ class _InicioPantallaState extends State<InicioPantalla> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(Espacio.l, Espacio.l, Espacio.l, Espacio.xl),
         children: [
+          // En pantallas amplias el botón "Instalar app" ya está en la barra roja.
+          if (MediaQuery.sizeOf(context).width < 600) const InvitacionInstalar(),
           Text(usuario == null ? '¿Qué se te antoja hoy?' : 'Hola, ${usuario.nombre}', style: tema.textTheme.headlineSmall),
           const SizedBox(height: Espacio.xs),
           Text(

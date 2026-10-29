@@ -97,6 +97,20 @@ class ClienteApi {
     }));
   }
 
+  /// Borra la cuenta de la sesión con su negocio, productos, fotos y reseñas.
+  ///
+  /// El servidor exige la [password] actual; un administrador no puede borrarse.
+  Future<void> eliminarMiCuenta(String password) async {
+    await _objeto('DELETE', '/api/yo', {'password': password});
+  }
+
+  /// Pide el enlace para restablecer la contraseña de [correo].
+  ///
+  /// El servidor responde igual exista o no la cuenta.
+  Future<void> olvideContrasena(String correo) async {
+    await _objeto('POST', '/api/contrasena/olvido', {'correo': correo.trim()});
+  }
+
   // ── Vendedores y productos ────────────────────────────────────────────
 
   /// Lista de negocios. [soloDisponibles] oculta los cerrados.
@@ -147,6 +161,11 @@ class ClienteApi {
   /// Avisos de inicio.
   Future<List<Aviso>> avisos() async {
     return (await _lista('/api/avisos')).map(Aviso.fromJson).toList();
+  }
+
+  /// Anuncios de los carruseles de publicidad, por sección y posición.
+  Future<List<Anuncio>> anuncios() async {
+    return (await _lista('/api/anuncios')).map(Anuncio.fromJson).toList();
   }
 
   // ── Favoritos y calificaciones ────────────────────────────────────────
@@ -287,6 +306,108 @@ class ClienteApi {
     await _objeto('DELETE', '/api/moderacion/usuarios/$id');
   }
 
+  // ── Panel de administración (solo admin) ──────────────────────────────
+
+  /// Conteos del tablero: `usuarios`, `vendedores`, `productos`, `sinVerificar`…
+  Future<Map<String, dynamic>> resumenAdmin() => _objeto('GET', '/api/admin/resumen');
+
+  /// Cambia datos de una cuenta. Solo se mandan las claves de [cambios].
+  Future<Usuario> actualizarUsuarioAdmin(String id, Map<String, dynamic> cambios) async {
+    return Usuario.fromJson(await _objeto('PATCH', '/api/admin/usuarios/$id', cambios));
+  }
+
+  /// Fija una contraseña nueva a una cuenta.
+  Future<void> fijarContrasena(String id, String password) async {
+    await _objeto('POST', '/api/admin/usuarios/$id/contrasena', {'password': password});
+  }
+
+  /// Manda a la cuenta un enlace para que ella elija su contraseña nueva.
+  Future<void> enviarRestablecimiento(String id) async {
+    await _objeto('POST', '/api/admin/usuarios/$id/restablecimiento');
+  }
+
+  /// Últimas solicitudes de restablecimiento.
+  Future<List<Restablecimiento>> restablecimientos() async {
+    return (await _lista('/api/admin/restablecimientos')).map(Restablecimiento.fromJson).toList();
+  }
+
+  /// Invalida un enlace de restablecimiento pendiente.
+  Future<void> anularRestablecimiento(String id) async {
+    await _objeto('POST', '/api/admin/restablecimientos/$id/anular');
+  }
+
+  /// Edita cualquier negocio (nombre, categoría, punto del mapa, destacado…).
+  Future<Vendedor> actualizarVendedorAdmin(String id, Map<String, dynamic> cambios) async {
+    return Vendedor.fromJson(await _objeto('PATCH', '/api/admin/vendedores/$id', cambios));
+  }
+
+  /// Borra un negocio con sus productos y fotos. La cuenta pasa a comprador.
+  Future<void> eliminarNegocio(String id) async {
+    await _objeto('DELETE', '/api/admin/vendedores/$id');
+  }
+
+  /// Borra cualquier producto con su foto.
+  Future<void> eliminarProductoAdmin(String id) async {
+    await _objeto('DELETE', '/api/admin/productos/$id');
+  }
+
+  /// Pone una imagen en [seccion]/[posicion] del carrusel. [vendedorId] null = no abre nada.
+  Future<List<Anuncio>> guardarAnuncio(int seccion, int posicion, {required String imagenUrl, String? vendedorId}) async {
+    final datos = await _decodificar('PUT', '/api/admin/anuncios/$seccion/$posicion',
+        cuerpo: {'imagenUrl': imagenUrl, 'vendedorId': vendedorId ?? ''});
+    return [for (final item in datos as List<dynamic>) Anuncio.fromJson(item as Map<String, dynamic>)];
+  }
+
+  /// Vacía una posición del carrusel.
+  Future<List<Anuncio>> quitarAnuncio(int seccion, int posicion) async {
+    final datos = await _decodificar('DELETE', '/api/admin/anuncios/$seccion/$posicion');
+    return [for (final item in datos as List<dynamic>) Anuncio.fromJson(item as Map<String, dynamic>)];
+  }
+
+  /// Todos los avisos, activos e inactivos.
+  Future<List<Aviso>> avisosAdmin() async {
+    return (await _lista('/api/admin/avisos')).map(Aviso.fromJson).toList();
+  }
+
+  /// Crea ([id] null) o edita un aviso.
+  Future<void> guardarAviso({String? id, required String titulo, required String contenido, required bool activo}) async {
+    final cuerpo = {'titulo': titulo, 'contenido': contenido, 'activo': activo};
+    if (id == null) {
+      await _objeto('POST', '/api/admin/avisos', cuerpo);
+    } else {
+      await _objeto('PATCH', '/api/admin/avisos/$id', cuerpo);
+    }
+  }
+
+  /// Borra un aviso.
+  Future<void> eliminarAviso(String id) async {
+    await _objeto('DELETE', '/api/admin/avisos/$id');
+  }
+
+  /// Últimas reseñas de toda la app.
+  Future<List<ResenaAdmin>> resenasAdmin() async {
+    return (await _lista('/api/admin/calificaciones')).map(ResenaAdmin.fromJson).toList();
+  }
+
+  /// Borra una reseña.
+  Future<void> eliminarResena(String productoId, String autorId) async {
+    await _objeto('DELETE', '/api/admin/calificaciones/$productoId/$autorId');
+  }
+
+  /// Tablas del explorador de registros con su número de filas: (tabla, filas).
+  Future<List<(String, int)>> tablas() async {
+    return [
+      for (final fila in await _lista('/api/admin/tablas')) (fila['tabla'] as String, (fila['filas'] as num).toInt()),
+    ];
+  }
+
+  /// Una página de [tabla], solo lectura.
+  Future<PaginaTabla> leerTabla(String tabla, {int pagina = 1, int limite = 25}) async {
+    final datos = await _decodificar('GET', '/api/admin/tablas/$tabla',
+        consulta: {'pagina': '$pagina', 'limite': '$limite'});
+    return PaginaTabla.fromJson(datos as Map<String, dynamic>);
+  }
+
   // ── Transporte ────────────────────────────────────────────────────────
 
   ({String token, Usuario usuario}) _sesion(Map<String, dynamic> datos) {
@@ -313,7 +434,7 @@ class ClienteApi {
   }) async {
     final uri = Uri.parse('$baseUrl$ruta').replace(queryParameters: (consulta?.isEmpty ?? true) ? null : consulta);
     final peticion = http.Request(metodo, uri)..headers.addAll(_cabeceras);
-    if (cuerpo != null || metodo == 'POST' || metodo == 'PATCH') {
+    if (cuerpo != null || metodo == 'POST' || metodo == 'PATCH' || metodo == 'PUT') {
       peticion.body = jsonEncode(cuerpo ?? const {});
     }
     final http.Response respuesta;

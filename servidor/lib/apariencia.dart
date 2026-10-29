@@ -1,4 +1,7 @@
 /// Claves que el administrador puede cambiar, con su valor inicial.
+///
+/// Los anuncios ya no viven aquí: tienen su propia tabla (`anuncios`) y
+/// rutas (`/api/anuncios`, `/api/admin/anuncios/...`).
 const Map<String, String> aparienciaPredeterminada = {
   'titulo': 'Mercado Liebre',
   'menuInicio': 'Inicio',
@@ -12,12 +15,6 @@ const Map<String, String> aparienciaPredeterminada = {
   'logoUrl': '',
   'iconoUrl': '',
   'fotoPortadaUrl': '',
-  // Espacios publicitarios de la barra lateral (arriba y abajo).
-  // Imagen vacía muestra "Anúnciate aquí"; enlace vacío no abre nada.
-  'publicidad1Url': '',
-  'publicidad1Enlace': '',
-  'publicidad2Url': '',
-  'publicidad2Enlace': '',
 };
 
 /// Nombres de iconos Material que la app sabe dibujar.
@@ -34,6 +31,12 @@ const Set<String> iconosDeMenu = {
   'place',
   'favorite',
 };
+
+/// Secciones de publicidad (arriba y abajo) y anuncios por sección.
+const int seccionesPublicidad = 2;
+
+/// Imágenes que rota cada carrusel de publicidad.
+const int anunciosPorSeccion = 3;
 
 /// Completa [guardados] con los valores que todavía no están en la base.
 Map<String, String> aparienciaVisible(Map<String, String> guardados) {

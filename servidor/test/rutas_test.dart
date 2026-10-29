@@ -91,4 +91,84 @@ void main() {
   test('el plano del servidor incluye Z y ZZ', () {
     expect(codigosDelPlano, containsAll(['Z', 'ZZ', 'F1', '8']));
   });
+
+  group('cuenta propia y contraseña', () {
+    /// Respuesta HTML (las páginas del enlace del correo).
+    Future<(int, String)> pedirHtml(String metodo, String ruta, {String? cuerpo}) async {
+      final respuesta = await handler(Request(
+        metodo,
+        Uri.parse('http://localhost$ruta'),
+        body: cuerpo,
+        headers: {if (cuerpo != null) 'content-type': 'application/x-www-form-urlencoded'},
+      ));
+      return (respuesta.statusCode, await respuesta.readAsString());
+    }
+
+    test('eliminar la cuenta propia sin sesión responde 401', () async {
+      final (estado, _) = await pedir('DELETE', '/api/yo', cuerpo: '{"password": "12345678"}');
+      expect(estado, 401);
+    });
+
+    test('olvidé mi contraseña exige un correo', () async {
+      final (estado, cuerpo) = await pedir('POST', '/api/contrasena/olvido', cuerpo: '{"correo": "ana"}');
+      expect(estado, 400);
+      expect(cuerpo['error'], contains('correo'));
+    });
+
+    test('olvidé mi contraseña sin SMTP responde 503 sin revelar si la cuenta existe', () async {
+      final (estado, _) = await pedir('POST', '/api/contrasena/olvido', cuerpo: '{"correo": "ana@itcj.edu.mx"}');
+      expect(estado, 503);
+    });
+
+    test('un enlace de restablecimiento falso muestra la página de error', () async {
+      final (estado, html) = await pedirHtml('GET', '/api/restablecer?token=a.b.c');
+      expect(estado, 400);
+      expect(html, contains('Enlace no válido'));
+    });
+
+    test('un token de sesión no sirve para restablecer la contraseña', () async {
+      final sesion = const TokenSesion('llave-de-prueba-larga').emitir('00000000-0000-0000-0000-000000000000');
+      final (estado, _) = await pedirHtml('POST', '/api/restablecer', cuerpo: 'token=$sesion&password=12345678&confirmacion=12345678');
+      expect(estado, 400);
+    });
+
+    test('con un enlace válido valida la contraseña antes de tocar la base', () async {
+      final token = const TokenSesion('llave-de-prueba-larga|restablecer-contrasena')
+          .emitir('00000000-0000-0000-0000-000000000000');
+      final (corta, html) = await pedirHtml('POST', '/api/restablecer', cuerpo: 'token=$token&password=123&confirmacion=123');
+      expect(corta, 200);
+      expect(html, contains('al menos 8 caracteres'));
+      final (distinta, otra) =
+          await pedirHtml('POST', '/api/restablecer', cuerpo: 'token=$token&password=12345678&confirmacion=87654321');
+      expect(distinta, 200);
+      expect(otra, contains('no coinciden'));
+    });
+  });
+
+  group('administración', () {
+    for (final (metodo, ruta) in [
+      ('GET', '/api/admin/resumen'),
+      ('GET', '/api/admin/tablas'),
+      ('GET', '/api/admin/tablas/users'),
+      ('GET', '/api/admin/restablecimientos'),
+      ('PATCH', '/api/admin/usuarios/x'),
+      ('POST', '/api/admin/usuarios/x/contrasena'),
+      ('PATCH', '/api/admin/vendedores/x'),
+      ('DELETE', '/api/admin/productos/x'),
+      ('PUT', '/api/admin/anuncios/1/1'),
+      ('GET', '/api/admin/avisos'),
+      ('DELETE', '/api/admin/calificaciones/x/y'),
+    ]) {
+      test('$metodo $ruta sin sesión responde 401', () async {
+        final (estado, _) = await pedir(metodo, ruta, cuerpo: metodo == 'GET' ? null : '{}');
+        expect(estado, 401);
+      });
+    }
+
+    test('el explorador nunca expone password_hash', () {
+      for (final tabla in Repositorio.tablasVisibles.values) {
+        expect(tabla.columnas, isNot(contains('password')));
+      }
+    });
+  });
 }

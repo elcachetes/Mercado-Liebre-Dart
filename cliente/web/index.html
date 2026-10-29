@@ -9,8 +9,9 @@
   <meta name="description" content="Mercado estudiantil del ITCJ: encuentra comida, productos y servicios dentro del plantel.">
   <meta name="theme-color" content="#C1121F">
 
-  <!-- iOS -->
+  <!-- PWA: manifest.json + sw.js (abajo) la hacen instalable. iOS usa estas metas. -->
   <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Mercado Liebre">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
@@ -45,6 +46,52 @@
   </div>
   <noscript>Mercado Liebre necesita JavaScript para funcionar.</noscript>
   <script>
+    // Puente con lib/servicios/instalacion_web.dart para el botón "Instalar app".
+    // Debe existir antes de que arranque Flutter, porque el navegador puede
+    // lanzar beforeinstallprompt en cuanto carga la página.
+    window.liebrePwa = (function () {
+      var aviso = null;
+      var oyentes = [];
+      var esIos = /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      function avisar() {
+        oyentes.forEach(function (oyente) { try { oyente(); } catch (e) {} });
+      }
+      window.addEventListener('beforeinstallprompt', function (evento) {
+        evento.preventDefault(); // La app muestra su propio botón.
+        aviso = evento;
+        avisar();
+      });
+      window.addEventListener('appinstalled', function () {
+        aviso = null;
+        avisar();
+      });
+      return {
+        puedeInstalar: function () { return aviso !== null; },
+        esIos: function () { return esIos; },
+        instalada: function () {
+          return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+        },
+        // Resuelve 'accepted', 'dismissed' o 'no-disponible'. El evento solo se usa una vez.
+        instalar: function () {
+          if (!aviso) return Promise.resolve('no-disponible');
+          var evento = aviso;
+          aviso = null;
+          evento.prompt();
+          return evento.userChoice.then(function (eleccion) { avisar(); return eleccion.outcome; });
+        },
+        alCambiar: function (oyente) { oyentes.push(oyente); },
+      };
+    })();
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').catch(function (error) {
+          console.warn('No se registró el service worker:', error);
+        });
+      });
+    }
+
     window.addEventListener('flutter-first-frame', function () {
       var carga = document.getElementById('carga');
       if (!carga) return;

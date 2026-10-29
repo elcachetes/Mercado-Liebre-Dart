@@ -6,6 +6,7 @@ import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
 import '../widgets/datos_opcionales.dart';
+import '../widgets/eliminar_cuenta.dart';
 import '../widgets/tarjeta_vendedor.dart';
 import '../widgets/verificacion.dart';
 import 'detalle_vendedor.dart';
@@ -24,7 +25,7 @@ enum SeccionCuenta {
   /// Panel del vendedor.
   negocio('Mi negocio', Icons.storefront_outlined),
 
-  /// Herramientas del administrador.
+  /// Panel del administrador (página propia con pestañas, ver [PanelAdmin]).
   administracion('Administración', Icons.admin_panel_settings_outlined),
 
   /// Bloqueo y borrado de cuentas.
@@ -53,7 +54,12 @@ enum SeccionCuenta {
 }
 
 /// Abre [seccion] en una página nueva con flecha para volver.
+///
+/// "Administración" abre [PanelAdmin], que tiene su propia barra con pestañas.
 Future<void> abrirSeccionCuenta(BuildContext context, EstadoApp estado, SeccionCuenta seccion) {
+  if (seccion == SeccionCuenta.administracion) {
+    return Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PanelAdmin(estado: estado)));
+  }
   return Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => Scaffold(
@@ -180,6 +186,8 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
               builder: (_) => _EditarDatos(estado: widget.estado),
             ),
           ),
+          // El administrador no puede borrarse a sí mismo (lo impide también el servidor).
+          if (!usuario.esAdmin) TarjetaEliminarCuenta(estado: widget.estado, vendedor: usuario.esVendedor),
         ];
       case SeccionCuenta.favoritos:
         final favoritos = _vendedores.where((vendedor) => widget.estado.esFavorito(vendedor.id)).toList();
@@ -208,7 +216,14 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
         }
         return [PanelNegocio(estado: widget.estado, negocio: negocio, alCambiar: _cargar)];
       case SeccionCuenta.administracion:
-        return [PanelAdmin(estado: widget.estado, alCambiar: _cargar)];
+        // Normalmente se abre con abrirSeccionCuenta; esto cubre cualquier otro camino.
+        return [
+          FilledButton.icon(
+            onPressed: () => abrirSeccionCuenta(context, widget.estado, SeccionCuenta.administracion),
+            icon: const Icon(Icons.admin_panel_settings_outlined),
+            label: const Text('Abrir el panel de administración'),
+          ),
+        ];
       case SeccionCuenta.moderacion:
         return [
           Padding(

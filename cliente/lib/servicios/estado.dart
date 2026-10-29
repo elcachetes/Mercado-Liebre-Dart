@@ -24,6 +24,9 @@ class EstadoApp extends ChangeNotifier {
   /// Menús, iconos y fotografías publicados por el administrador.
   Apariencia apariencia = Apariencia.predeterminada();
 
+  /// Anuncios de los carruseles de publicidad. Vacía si la API no respondió.
+  List<Anuncio> anuncios = const [];
+
   /// Claro, oscuro o el del sistema (si la persona nunca eligió).
   ThemeMode modo = ThemeMode.system;
 
@@ -53,6 +56,11 @@ class EstadoApp extends ChangeNotifier {
         apariencia = await api.apariencia();
       } catch (_) {
         apariencia = Apariencia.predeterminada();
+      }
+      try {
+        anuncios = await api.anuncios();
+      } catch (_) {
+        anuncios = const []; // Sin anuncios se muestra "Anúnciate aquí".
       }
       final token = prefs.getString(_claveToken);
       if (token != null && token.isNotEmpty) {
@@ -112,6 +120,20 @@ class EstadoApp extends ChangeNotifier {
   void aplicarApariencia(Apariencia nueva) {
     apariencia = nueva;
     notifyListeners();
+  }
+
+  /// Publica en los carruseles los anuncios que acaba de guardar el administrador.
+  void aplicarAnuncios(List<Anuncio> nuevos) {
+    anuncios = nuevos;
+    notifyListeners();
+  }
+
+  /// Borra la cuenta en el servidor y deja la app como invitada.
+  ///
+  /// Si la contraseña es incorrecta lanza [ErrorApi] y la sesión sigue abierta.
+  Future<void> eliminarCuenta(String password) async {
+    await api.eliminarMiCuenta(password);
+    await salir();
   }
 
   /// Guarda teléfono, número de control y carrera, y refresca [usuario].

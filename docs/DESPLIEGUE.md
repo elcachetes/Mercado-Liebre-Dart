@@ -175,6 +175,14 @@ curl https://mercado.tudominio.com/api/apariencia  # JSON con el título
 Los servicios `api` y `web` y el recurso PostgreSQL deben aparecer
 **Running (healthy)** en Coolify.
 
+**App instalable (PWA):** abre el dominio en Chrome o Edge (Android o
+escritorio): debe aparecer el botón **Instalar app** en la barra roja (en el
+celular, una tarjeta en Inicio). En iPhone/iPad el botón explica cómo
+instalarla desde *Compartir → Agregar a pantalla de inicio* de Safari. La
+instalación exige **HTTPS**, que Coolify ya da; en `http://` (salvo
+`localhost`) el navegador no la ofrece. En DevTools → *Application* →
+*Manifest* / *Service workers* se ve si `manifest.json` y `sw.js` cargaron.
+
 ## 6. Respaldos
 
 La base es un recurso PostgreSQL de Coolify: programa sus respaldos en la
@@ -206,7 +214,8 @@ respaldos de la base. Respáldalo con
 | La API ignora el `DATABASE_URL` nuevo | Un admin guardó otra conexión desde el panel (`/app/datos/conexion.json`, que tiene prioridad). Usa *Restaurar la del entorno* en el panel o borra ese archivo y reinicia `api`. |
 | 502 Bad Gateway en `/api/...` y `/salud` | `api` no está sana o no escucha en 8080. Revisa sus logs; `web` reenvía a `api:8080`, así que `PORT` debe ser `8080`. |
 | `Permission denied` al subir fotos tras actualizar | El volumen `datos_api` se creó cuando la API corría como root. Una sola vez: `docker run --rm -v NOMBRE_VOLUMEN_DATOS:/d alpine chown -R 10001 /d` y reinicia `api`. |
-| La app muestra la versión vieja tras desplegar | Recarga forzada (Ctrl+Shift+R). `index.html` y `main.dart.js` se sirven con `no-cache`, así que basta una recarga. |
+| La app muestra la versión vieja tras desplegar | Recarga forzada (Ctrl+Shift+R). `index.html`, `main.dart.js` y `sw.js` se sirven con `no-cache` y el service worker pide primero a la red, así que basta una recarga. |
+| "¿Olvidaste tu contraseña?" responde que el correo no está configurado | Faltan `SMTP_USUARIO`/`SMTP_PASSWORD`. Mientras tanto el admin puede fijar contraseñas en *Administración → Usuarios → Restablecer contraseña*. |
 | El certificado HTTPS no se emite | El DNS aún no apunta al servidor, o los puertos 80/443 están cerrados. |
 
 ## 8. Actualizar
@@ -215,3 +224,8 @@ Haz `git push` (con webhook) o pulsa **Redeploy** en Coolify. La API aplica
 `db/schema.sql` en cada arranque, así que los cambios de esquema escritos con
 `IF NOT EXISTS` se aplican solos. Los volúmenes `pgdata` y `datos_api` se
 conservan entre despliegues.
+
+Al actualizar a la versión con carruseles de publicidad, el anuncio de cada
+espacio que ya existía pasa solo a la posición 1 de su carrusel (tabla
+`anuncios`); el enlace externo que tenía se descarta, porque ahora cada
+anuncio abre la ficha de un negocio. Elígelo en *Administración → Publicidad*.

@@ -4,9 +4,11 @@ import '../servicios/estado.dart';
 import '../tema/iconos_menu.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
+import '../widgets/instalar_app.dart';
 import '../widgets/publicidad.dart';
 import '../widgets/reporte_dialogo.dart';
 import 'busqueda_pantalla.dart';
+import 'detalle_vendedor.dart';
 import 'inicio_pantalla.dart';
 import 'mapa_pantalla.dart';
 import 'perfil_pantalla.dart';
@@ -14,7 +16,8 @@ import 'sesion_dialogo.dart';
 
 /// Marco con la barra superior roja, que lleva toda la navegación.
 ///
-/// Desde 840 px de ancho agrega a la izquierda la barra de publicidad.
+/// Desde 840 px de ancho agrega a la izquierda la barra de publicidad
+/// (dos carruseles; tocar un anuncio abre la ficha del negocio).
 /// Cada pestaña se construye la primera vez que se visita y después se
 /// conserva (texto buscado, zoom del mapa, posición de scroll).
 class MarcoPrincipal extends StatefulWidget {
@@ -33,6 +36,32 @@ class _MarcoPrincipalState extends State<MarcoPrincipal> {
 
   int _indice = 0;
   final Set<int> _visitadas = {0};
+
+  /// Cuenta que había en el último cambio de [EstadoApp]; ver [_alCambiarCuenta].
+  String? _cuenta;
+
+  @override
+  void initState() {
+    super.initState();
+    _cuenta = widget.estado.usuario?.id;
+    widget.estado.addListener(_alCambiarCuenta);
+  }
+
+  @override
+  void dispose() {
+    widget.estado.removeListener(_alCambiarCuenta);
+    super.dispose();
+  }
+
+  /// Al cerrar sesión o eliminar la cuenta se vuelve a Inicio, la pantalla
+  /// principal, desde donde se puede crear otra cuenta.
+  void _alCambiarCuenta() {
+    final actual = widget.estado.usuario?.id;
+    if (_cuenta != null && actual == null && mounted) {
+      _ir(0);
+    }
+    _cuenta = actual;
+  }
 
   void _ir(int indice) {
     setState(() {
@@ -95,6 +124,8 @@ class _MarcoPrincipalState extends State<MarcoPrincipal> {
           ],
         ),
         actions: [
+          // En el celular la invitación a instalar va en Inicio para no saturar la barra.
+          if (!compacto) BotonInstalar(conTexto: amplio),
           if (amplio)
             TextButton.icon(
               style: TextButton.styleFrom(foregroundColor: Colors.white),
@@ -121,7 +152,10 @@ class _MarcoPrincipalState extends State<MarcoPrincipal> {
           ? Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                BarraPublicidad(apariencia: widget.estado.apariencia),
+                BarraPublicidad(
+                  anuncios: widget.estado.anuncios,
+                  alAbrirVendedor: (vendedor) => abrirVendedor(context, widget.estado, vendedor),
+                ),
                 const VerticalDivider(width: 1),
                 Expanded(child: cuerpo),
               ],

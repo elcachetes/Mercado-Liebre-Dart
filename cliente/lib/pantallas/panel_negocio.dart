@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../modelos/modelos.dart';
 import '../servicios/api.dart';
@@ -10,6 +11,7 @@ import '../servicios/estado.dart';
 import '../servicios/imagenes.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
+import '../widgets/eliminar_cuenta.dart';
 import '../widgets/tarjeta_producto.dart';
 import '../widgets/selector_dias.dart';
 import 'sesion_dialogo.dart';
@@ -118,6 +120,10 @@ class _PanelNegocioState extends State<PanelNegocio> {
     if (edicion == null) {
       return;
     }
+    if (edicion.eliminar && producto != null) {
+      await _borrar(producto);
+      return;
+    }
     final api = widget.estado.api;
     final datos = edicion.producto;
     final ok = await _guardar(() async {
@@ -146,11 +152,14 @@ class _PanelNegocioState extends State<PanelNegocio> {
     }
   }
 
+  /// Borra el producto en la base (`DELETE /api/productos/<id>`) con su foto,
+  /// su precio y sus reseñas. Pide confirmación antes.
   Future<void> _borrar(Producto producto) async {
     final seguro = await confirmar(
       context,
       titulo: 'Eliminar producto',
-      mensaje: '"${producto.nombre}" y sus reseñas se borrarán. Esta acción no se puede deshacer.',
+      mensaje: '"${producto.nombre}" se eliminará junto con su fotografía, su precio y sus reseñas. '
+          'Esta acción no se puede deshacer.',
     );
     if (seguro && await _guardar(() => widget.estado.api.eliminarProducto(producto.id), exito: 'Producto eliminado.')) {
       await _cargarProductos();
@@ -324,6 +333,7 @@ class _PanelNegocioState extends State<PanelNegocio> {
             ),
           ],
         ),
+        TarjetaEliminarCuenta(estado: widget.estado, vendedor: true),
       ],
     );
   }
@@ -417,11 +427,15 @@ class _Seccion extends StatelessWidget {
   }
 }
 
-/// Lo que devuelve [_DialogoProducto]: datos escritos y cambios de foto.
+/// Lo que devuelve [_DialogoProducto]: datos escritos y cambios de foto,
+/// o la orden de eliminar el producto.
 class _Edicion {
-  const _Edicion(this.producto, {this.fotoNueva, this.quitarFoto = false});
+  const _Edicion(this.producto, {this.fotoNueva, this.quitarFoto = false, this.eliminar = false});
 
   final Producto producto;
+
+  /// La persona tocó "Eliminar producto" dentro del formulario.
+  final bool eliminar;
 
   /// JPEG ya comprimido para subir, o null si no se eligió otra foto.
   final Uint8List? fotoNueva;
@@ -450,9 +464,24 @@ class _DialogoProductoState extends State<_DialogoProducto> {
   bool _quitarFoto = false;
   bool _procesando = false;
 
-  Future<void> _elegirFoto() async {
-    final elegido = await FilePicker.platform.pickFiles(type: FileType.image, withData: true);
-    final bytes = elegido?.files.single.bytes;
+  /// Abre la cámara ([ImageSource.camera]) o la galería / los archivos del
+  /// dispositivo ([ImageSource.gallery]) y comprime la foto elegida.
+  Future<void> _elegirFoto(ImageSource origen) async {
+    final Uint8List? bytes;
+    try {
+      bytes = await (await ImagePicker().pickImage(source: origen))?.readAsBytes();
+    } catch (_) {
+      // Sin permiso de cámara o sin cámara disponible.
+      if (mounted) {
+        mostrarAviso(
+          context,
+          origen == ImageSource.camera
+              ? 'No se pudo abrir la cámara. Revisa el permiso de cámara o elige una foto de la galería.'
+              : 'No se pudo abrir la galería.',
+        );
+      }
+      return;
+    }
     if (bytes == null || !mounted) {
       return;
     }
@@ -555,6 +584,15 @@ class _DialogoProductoState extends State<_DialogoProducto> {
         ),
       ),
       actions: [
+        if (widget.producto != null)
+          TextButton.icon(
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+            onPressed: _procesando
+                ? null
+                : () => Navigator.pop(context, _Edicion(widget.producto!, eliminar: true)),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Eliminar producto'),
+          ),
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
         FilledButton(
           onPressed: _procesando ? null : _aceptar,
@@ -564,7 +602,12 @@ class _DialogoProductoState extends State<_DialogoProducto> {
     );
   }
 
-  /// Vista previa con botones para elegir, cambiar o quitar la foto.
+  /// Hay cámara que abrir: celulares y tabletas, en la app nativa o en el navegador.
+  /// En escritorio la "cámara" del selector solo abriría otra vez los archivos.
+  static bool get _hayCamara =>
+      defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// Vista previa con botones para elegir (galería o cámara), cambiar o quitar la foto.
   Widget _foto() {
     final esquema = Theme.of(context).colorScheme;
     final actual = _quitarFoto ? null : widget.producto?.fotoUrl;
@@ -594,19 +637,25 @@ class _DialogoProductoState extends State<_DialogoProducto> {
           borderRadius: BorderRadius.circular(12),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: _procesando ? null : _elegirFoto,
+            onTap: _procesando ? null : () => _elegirFoto(ImageSource.gallery),
             child: AspectRatio(aspectRatio: 16 / 10, child: vista),
           ),
         ),
-        if (tieneFoto)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
+        Wrap(
+          alignment: WrapAlignment.end,
+          children: [
+            TextButton.icon(
+              onPressed: _procesando ? null : () => _elegirFoto(ImageSource.gallery),
+              icon: const Icon(Icons.photo_library_outlined),
+              label: Text(_hayCamara ? 'Galería' : 'Elegir archivo'),
+            ),
+            if (_hayCamara)
               TextButton.icon(
-                onPressed: _procesando ? null : _elegirFoto,
-                icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('Cambiar'),
+                onPressed: _procesando ? null : () => _elegirFoto(ImageSource.camera),
+                icon: const Icon(Icons.photo_camera_outlined),
+                label: const Text('Tomar foto'),
               ),
+            if (tieneFoto)
               TextButton.icon(
                 onPressed: _procesando
                     ? null
@@ -617,8 +666,8 @@ class _DialogoProductoState extends State<_DialogoProducto> {
                 icon: const Icon(Icons.delete_outline),
                 label: const Text('Quitar'),
               ),
-            ],
-          ),
+          ],
+        ),
       ],
     );
   }

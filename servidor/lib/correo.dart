@@ -114,6 +114,34 @@ class Correo {
     await entregar(mensaje);
   }
 
+  /// Manda el enlace para elegir una contraseña nueva. Vence en [vigencia].
+  Future<void> enviarRestablecimiento({
+    required String para,
+    required String nombre,
+    required String enlace,
+    required Duration vigencia,
+  }) async {
+    final seguro = const HtmlEscape();
+    final plazo = vigencia.inMinutes >= 120 ? '${vigencia.inHours} horas' : '${vigencia.inMinutes} minutos';
+    final mensaje = Message()
+      ..from = Address(configuracion.direccionRemitente, 'Mercado Liebre')
+      ..recipients.add(para)
+      ..subject = 'Restablece tu contraseña de Mercado Liebre'
+      ..text = 'Hola $nombre:\n\n'
+          'Recibimos una solicitud para cambiar la contraseña de tu cuenta. Elige una nueva aquí:\n\n'
+          '$enlace\n\n'
+          'El enlace vence en $plazo y solo sirve una vez. Si no lo pediste, ignora este mensaje: '
+          'tu contraseña actual sigue funcionando.'
+      ..html = '<p>Hola ${seguro.convert(nombre)}:</p>'
+          '<p>Recibimos una solicitud para cambiar la contraseña de tu cuenta.</p>'
+          '<p><a href="${seguro.convert(enlace)}" '
+          'style="background:#d32f2f;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">'
+          'Elegir contraseña nueva</a></p>'
+          '<p style="color:#666">El enlace vence en $plazo y solo sirve una vez. Si no lo pediste, '
+          'ignora este mensaje: tu contraseña actual sigue funcionando.</p>';
+    await entregar(mensaje);
+  }
+
   /// Manda un reporte de falla, queja o sugerencia al buzón de la administración.
   ///
   /// El cuerpo va en texto plano: lo que escribe la persona no se interpreta como HTML.

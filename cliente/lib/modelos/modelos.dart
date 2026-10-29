@@ -23,6 +23,7 @@ class Usuario {
     this.bloqueado = false,
     this.perfilEditable = false,
     this.correoVerificado = true,
+    this.creadoEn,
   });
 
   /// Identificador UUID.
@@ -60,6 +61,9 @@ class Usuario {
 
   /// Abrió el enlace del correo de verificación. Sin esto no califica ni comenta.
   final bool correoVerificado;
+
+  /// Fecha de registro, si la API la mandó.
+  final DateTime? creadoEn;
 
   /// Nombre y apellido juntos.
   String get nombreCompleto => '$nombre $apellido'.trim();
@@ -105,6 +109,7 @@ class Usuario {
       bloqueado: json['bloqueado'] == true,
       perfilEditable: json['perfilEditable'] == true,
       correoVerificado: json['correoVerificado'] != false,
+      creadoEn: DateTime.tryParse(json['creadoEn'] as String? ?? ''),
     );
   }
 }
@@ -123,6 +128,7 @@ class Vendedor {
     required this.disponible,
     this.edificio,
     required this.destacado,
+    this.destacadoHasta,
     this.horarioApertura,
     this.horarioCierre,
     this.diasAtencion,
@@ -163,6 +169,9 @@ class Vendedor {
 
   /// Pagó por aparecer destacado.
   final bool destacado;
+
+  /// Fin de la promoción; null = sin fecha de fin.
+  final DateTime? destacadoHasta;
 
   /// Hora de apertura `HH:mm`, si el vendedor la definió.
   final String? horarioApertura;
@@ -224,6 +233,7 @@ class Vendedor {
       disponible: json['disponible'] == true,
       edificio: json['edificio'] as String?,
       destacado: json['destacado'] == true,
+      destacadoHasta: DateTime.tryParse(json['destacadoHasta'] as String? ?? ''),
       horarioApertura: json['horarioApertura'] as String?,
       horarioCierre: json['horarioCierre'] as String?,
       diasAtencion: json['diasAtencion'] as String?,
@@ -365,10 +375,6 @@ class Apariencia {
     required this.logoUrl,
     required this.iconoUrl,
     required this.fotoPortadaUrl,
-    this.publicidad1Url = '',
-    this.publicidad1Enlace = '',
-    this.publicidad2Url = '',
-    this.publicidad2Enlace = '',
   });
 
   /// Nombre de la app en la barra superior.
@@ -405,19 +411,9 @@ class Apariencia {
   final String iconoUrl;
 
   /// URL de la fotografía de portada, vacía si no hay.
+  ///
+  /// Los anuncios ya no son parte de la apariencia: ver [Anuncio].
   final String fotoPortadaUrl;
-
-  /// Imagen del anuncio de arriba en la barra lateral. Vacía muestra "Anúnciate aquí".
-  final String publicidad1Url;
-
-  /// Página que abre el anuncio de arriba, vacía si no abre nada.
-  final String publicidad1Enlace;
-
-  /// Imagen del anuncio de abajo en la barra lateral.
-  final String publicidad2Url;
-
-  /// Página que abre el anuncio de abajo.
-  final String publicidad2Enlace;
 
   /// Apariencia de fábrica, usada si la API no responde.
   factory Apariencia.predeterminada() {
@@ -461,10 +457,6 @@ class Apariencia {
       logoUrl: json['logoUrl'] as String? ?? '',
       iconoUrl: json['iconoUrl'] as String? ?? '',
       fotoPortadaUrl: json['fotoPortadaUrl'] as String? ?? '',
-      publicidad1Url: json['publicidad1Url'] as String? ?? '',
-      publicidad1Enlace: json['publicidad1Enlace'] as String? ?? '',
-      publicidad2Url: json['publicidad2Url'] as String? ?? '',
-      publicidad2Enlace: json['publicidad2Enlace'] as String? ?? '',
     );
   }
 
@@ -483,10 +475,6 @@ class Apariencia {
       'logoUrl': logoUrl,
       'iconoUrl': iconoUrl,
       'fotoPortadaUrl': fotoPortadaUrl,
-      'publicidad1Url': publicidad1Url,
-      'publicidad1Enlace': publicidad1Enlace,
-      'publicidad2Url': publicidad2Url,
-      'publicidad2Enlace': publicidad2Enlace,
     };
   }
 }
@@ -494,7 +482,10 @@ class Apariencia {
 /// Aviso institucional de la pantalla de inicio.
 class Aviso {
   /// Título y cuerpo publicados por la administración.
-  Aviso({required this.titulo, required this.contenido});
+  Aviso({this.id = '', required this.titulo, required this.contenido, this.activo = true, this.publicadoEn});
+
+  /// Id del aviso (lo usa el panel de administración para editarlo).
+  final String id;
 
   /// Encabezado corto.
   final String titulo;
@@ -502,11 +493,226 @@ class Aviso {
   /// Texto del aviso.
   final String contenido;
 
+  /// Se muestra en Inicio. `GET /api/avisos` solo trae los activos.
+  final bool activo;
+
+  /// Fecha de publicación.
+  final DateTime? publicadoEn;
+
   /// Construye desde el JSON de la API.
   factory Aviso.fromJson(Map<String, dynamic> json) {
     return Aviso(
+      id: json['id'] as String? ?? '',
       titulo: json['titulo'] as String,
       contenido: json['contenido'] as String,
+      activo: json['activo'] != false,
+      publicadoEn: DateTime.tryParse(json['publicadoEn'] as String? ?? ''),
+    );
+  }
+}
+
+/// Un anuncio de los carruseles de publicidad (`GET /api/anuncios`).
+///
+/// Hay [Anuncio.secciones] carruseles con hasta [Anuncio.porSeccion] imágenes
+/// cada uno. Si tiene [vendedor], tocarlo abre la ficha de ese negocio en la
+/// app. Mismos límites que `seccionesPublicidad`/`anunciosPorSeccion` en
+/// `servidor/lib/apariencia.dart`.
+class Anuncio {
+  /// Posición, imagen y negocio enlazado.
+  Anuncio({required this.seccion, required this.posicion, required this.imagenUrl, this.vendedor});
+
+  /// Carruseles de la barra lateral (1 = arriba, 2 = abajo).
+  static const int secciones = 2;
+
+  /// Imágenes por carrusel.
+  static const int porSeccion = 3;
+
+  /// 1 o 2.
+  final int seccion;
+
+  /// 1, 2 o 3: orden dentro del carrusel.
+  final int posicion;
+
+  /// `/medios/...` o URL completa.
+  final String imagenUrl;
+
+  /// Negocio anunciado, o null si el anuncio no abre nada.
+  final Vendedor? vendedor;
+
+  /// Construye desde el JSON de la API.
+  factory Anuncio.fromJson(Map<String, dynamic> json) {
+    final vendedor = json['vendedor'];
+    return Anuncio(
+      seccion: (json['seccion'] as num).toInt(),
+      posicion: (json['posicion'] as num).toInt(),
+      imagenUrl: json['imagenUrl'] as String? ?? '',
+      vendedor: vendedor is Map<String, dynamic> ? Vendedor.fromJson(vendedor) : null,
+    );
+  }
+}
+
+/// Solicitud de restablecimiento de contraseña, para el panel de administración.
+class Restablecimiento {
+  /// Datos de `GET /api/admin/restablecimientos`.
+  Restablecimiento({
+    required this.id,
+    required this.userId,
+    required this.nombre,
+    required this.correo,
+    required this.origen,
+    required this.estado,
+    this.creadoEn,
+    this.venceEn,
+    this.usadoEn,
+  });
+
+  /// Id de la solicitud.
+  final String id;
+
+  /// Cuenta a la que pertenece.
+  final String userId;
+
+  /// Nombre completo de la cuenta.
+  final String nombre;
+
+  /// Correo de la cuenta.
+  final String correo;
+
+  /// `correo` (la pidió la persona) o `admin`.
+  final String origen;
+
+  /// `pendiente`, `usado`, `vencido` o `anulado`.
+  final String estado;
+
+  /// Cuándo se pidió.
+  final DateTime? creadoEn;
+
+  /// Cuándo deja de servir el enlace.
+  final DateTime? venceEn;
+
+  /// Cuándo se cambió la contraseña con ella.
+  final DateTime? usadoEn;
+
+  /// Todavía se puede anular.
+  bool get pendiente => estado == 'pendiente';
+
+  /// Construye desde el JSON de la API.
+  factory Restablecimiento.fromJson(Map<String, dynamic> json) {
+    DateTime? fecha(String clave) => DateTime.tryParse(json[clave] as String? ?? '');
+    return Restablecimiento(
+      id: json['id'] as String,
+      userId: json['userId'] as String,
+      nombre: json['nombre'] as String? ?? '',
+      correo: json['correo'] as String? ?? '',
+      origen: json['origen'] as String? ?? '',
+      estado: json['estado'] as String? ?? '',
+      creadoEn: fecha('creadoEn'),
+      venceEn: fecha('venceEn'),
+      usadoEn: fecha('usadoEn'),
+    );
+  }
+}
+
+/// Reseña vista desde el panel de administración, con producto, negocio y autor.
+class ResenaAdmin {
+  /// Datos de `GET /api/admin/calificaciones`.
+  ResenaAdmin({
+    required this.productoId,
+    required this.autorId,
+    required this.estrellas,
+    required this.producto,
+    required this.nombreNegocio,
+    required this.autor,
+    required this.correo,
+    this.comentario,
+    this.creadoEn,
+  });
+
+  /// Producto calificado.
+  final String productoId;
+
+  /// Cuenta que escribió la reseña.
+  final String autorId;
+
+  /// De 1 a 5.
+  final int estrellas;
+
+  /// Nombre del producto.
+  final String producto;
+
+  /// Negocio del producto.
+  final String nombreNegocio;
+
+  /// Nombre completo del autor.
+  final String autor;
+
+  /// Correo del autor.
+  final String correo;
+
+  /// Texto libre.
+  final String? comentario;
+
+  /// Fecha.
+  final DateTime? creadoEn;
+
+  /// Construye desde el JSON de la API.
+  factory ResenaAdmin.fromJson(Map<String, dynamic> json) {
+    return ResenaAdmin(
+      productoId: json['productoId'] as String,
+      autorId: json['autorId'] as String,
+      estrellas: (json['estrellas'] as num?)?.toInt() ?? 0,
+      producto: json['producto'] as String? ?? '',
+      nombreNegocio: json['nombreNegocio'] as String? ?? '',
+      autor: json['autor'] as String? ?? '',
+      correo: json['correo'] as String? ?? '',
+      comentario: json['comentario'] as String?,
+      creadoEn: DateTime.tryParse(json['creadoEn'] as String? ?? ''),
+    );
+  }
+}
+
+/// Una página de una tabla del explorador de registros (solo lectura).
+class PaginaTabla {
+  /// Datos de `GET /api/admin/tablas/<tabla>`.
+  PaginaTabla({
+    required this.tabla,
+    required this.columnas,
+    required this.filas,
+    required this.total,
+    required this.pagina,
+    required this.limite,
+  });
+
+  /// Nombre SQL de la tabla.
+  final String tabla;
+
+  /// Nombres de columna, en orden.
+  final List<String> columnas;
+
+  /// Valores de cada fila, en el orden de [columnas].
+  final List<List<Object?>> filas;
+
+  /// Filas totales en la tabla.
+  final int total;
+
+  /// Página actual, desde 1.
+  final int pagina;
+
+  /// Filas por página.
+  final int limite;
+
+  /// Número de páginas (al menos 1).
+  int get paginas => total == 0 ? 1 : (total / limite).ceil();
+
+  /// Construye desde el JSON de la API.
+  factory PaginaTabla.fromJson(Map<String, dynamic> json) {
+    return PaginaTabla(
+      tabla: json['tabla'] as String,
+      columnas: [for (final columna in json['columnas'] as List<dynamic>) columna.toString()],
+      filas: [for (final fila in json['filas'] as List<dynamic>) List<Object?>.from(fila as List<dynamic>)],
+      total: (json['total'] as num).toInt(),
+      pagina: (json['pagina'] as num).toInt(),
+      limite: (json['limite'] as num).toInt(),
     );
   }
 }

@@ -434,15 +434,7 @@ class Repositorio {
     final filas = await _pool.execute(
       'SELECT * FROM announcements WHERE activo = TRUE ORDER BY publicado_en DESC',
     );
-    return filas.map((fila) {
-      final mapa = fila.toColumnMap();
-      return {
-        'id': mapa['id'].toString(),
-        'titulo': mapa['titulo'],
-        'contenido': mapa['contenido'],
-        'publicadoEn': mapa['publicado_en']?.toString(),
-      };
-    }).toList();
+    return filas.map((fila) => _aviso(fila.toColumnMap())).toList();
   }
 
   /// Ids de vendedores marcados como favoritos.
@@ -802,12 +794,639 @@ class Repositorio {
     );
   }
 
-  /// Borra la cuenta y, por las llaves foráneas, su negocio y favoritos.
-  Future<void> eliminarUsuario(String userId) async {
-    await _pool.execute(
-      Sql.named('DELETE FROM users WHERE id = @id'),
-      parameters: {'id': userId},
+  /// Borra la cuenta y, por las llaves foráneas (ON DELETE CASCADE), todo lo
+  /// suyo: negocio, productos, reseñas que escribió y que recibieron sus
+  /// productos, favoritos, anuncios de su negocio y restablecimientos.
+  ///
+  /// Devuelve las URLs de las fotos de sus productos y de su perfil, para que
+  /// la ruta borre esos archivos del disco (la base no los conoce).
+  Future<List<String>> eliminarUsuario(String userId) {
+    return _pool.runTx((conexion) async {
+      final fotos = await conexion.execute(
+        Sql.named('''
+          SELECT p.foto_url FROM products p
+          JOIN sellers s ON s.id = p.seller_id
+          WHERE s.user_id = @id AND p.foto_url IS NOT NULL
+          UNION ALL
+          SELECT foto_perfil_url FROM users WHERE id = @id AND foto_perfil_url IS NOT NULL
+        '''),
+        parameters: {'id': userId},
+      );
+      await conexion.execute(Sql.named('DELETE FROM users WHERE id = @id'), parameters: {'id': userId});
+      return [for (final fila in fotos) fila[0].toString()];
+    });
+  }
+
+  // ── Cuenta propia ─────────────────────────────────────────────────────
+
+  /// Borra la cuenta de [userId] tras comprobar su [password]. Ver [eliminarUsuario].
+  ///
+  /// Un administrador no puede borrarse a sí mismo: la app podría quedarse
+  /// sin nadie que la administre. Otro administrador sí puede hacerlo.
+  Future<List<String>> eliminarCuentaPropia(String userId, String password) async {
+    final fila = await _una('SELECT password_hash, rol FROM users WHERE id = @id', {'id': userId});
+    if (fila == null) {
+      throw ErrorApi(404, 'La cuenta ya no existe.');
+    }
+    if (_enum(fila['rol']) == 'admin') {
+      throw ErrorApi(400, 'Un administrador no puede eliminar su propia cuenta. Pide a otro administrador que lo haga.');
+    }
+    if (!await _verificarAparte(contrasena, password, fila['password_hash'].toString())) {
+      throw ErrorApi(403, 'La contraseña no es correcta.');
+    }
+    return eliminarUsuario(userId);
+  }
+
+  // ── Restablecimiento de contraseña ────────────────────────────────────
+
+  /// Cuenta con ese correo, o null. Solo para el flujo de "olvidé mi contraseña".
+  Future<Map<String, dynamic>?> usuarioPorCorreo(String correo) async {
+    final fila = await _una('SELECT * FROM users WHERE correo = @correo', {'correo': correo.trim().toLowerCase()});
+    return fila == null ? null : _usuario(fila);
+  }
+
+  /// Registra una solicitud de restablecimiento y devuelve su id (va dentro del token del enlace).
+  ///
+  /// [origen] es `correo` (la pidió la persona) o `admin`. Las solicitudes
+  /// anteriores que seguían pendientes se anulan: solo vale el último enlace.
+  Future<String> crearRestablecimiento(String userId, {required String origen, required Duration vigencia}) {
+    return _pool.runTx((conexion) async {
+      await conexion.execute(
+        Sql.named('''
+          UPDATE restablecimientos SET anulado = TRUE
+          WHERE user_id = @user AND usado_en IS NULL AND NOT anulado
+        '''),
+        parameters: {'user': userId},
+      );
+      final filas = await conexion.execute(
+        Sql.named('''
+          INSERT INTO restablecimientos (user_id, origen, vence_en)
+          VALUES (@user, @origen, now() + (@minutos::int * interval '1 minute'))
+          RETURNING id
+        '''),
+        parameters: {'user': userId, 'origen': origen, 'minutos': vigencia.inMinutes},
+      );
+      return filas.first[0].toString();
+    });
+  }
+
+  /// Verdadero si la solicitud existe, no se usó, no se anuló y no venció.
+  Future<bool> restablecimientoVigente(String solicitudId) async {
+    final fila = await _una(
+      'SELECT 1 FROM restablecimientos WHERE id = @id AND usado_en IS NULL AND NOT anulado AND vence_en > now()',
+      {'id': solicitudId},
     );
+    return fila != null;
+  }
+
+  /// Cambia la contraseña con una solicitud vigente y la marca como usada.
+  Future<void> restablecerContrasena(String solicitudId, String password) async {
+    _validarPassword(password);
+    final hash = await _hashearAparte(contrasena, password);
+    await _pool.runTx((conexion) async {
+      final filas = await conexion.execute(
+        Sql.named('''
+          SELECT user_id FROM restablecimientos
+          WHERE id = @id AND usado_en IS NULL AND NOT anulado AND vence_en > now()
+          FOR UPDATE
+        '''),
+        parameters: {'id': solicitudId},
+      );
+      if (filas.isEmpty) {
+        throw ErrorApi(400, 'El enlace ya se usó, venció o fue anulado. Pide otro desde "¿Olvidaste tu contraseña?".');
+      }
+      final userId = filas.first[0].toString();
+      await conexion.execute(
+        Sql.named('UPDATE users SET password_hash = @hash WHERE id = @id'),
+        parameters: {'hash': hash, 'id': userId},
+      );
+      await conexion.execute(
+        Sql.named('UPDATE restablecimientos SET usado_en = now() WHERE id = @id'),
+        parameters: {'id': solicitudId},
+      );
+    });
+  }
+
+  /// El administrador fija una contraseña nueva. Queda registrado como restablecimiento usado.
+  Future<void> cambiarContrasenaAdmin(String userId, String password) async {
+    _validarPassword(password);
+    final hash = await _hashearAparte(contrasena, password);
+    await _pool.runTx((conexion) async {
+      final resultado = await conexion.execute(
+        Sql.named('UPDATE users SET password_hash = @hash WHERE id = @id'),
+        parameters: {'hash': hash, 'id': userId},
+      );
+      _exigirAfectada(resultado, 'No se encontró la cuenta.');
+      await conexion.execute(
+        Sql.named('''
+          UPDATE restablecimientos SET anulado = TRUE
+          WHERE user_id = @user AND usado_en IS NULL AND NOT anulado
+        '''),
+        parameters: {'user': userId},
+      );
+      await conexion.execute(
+        Sql.named('''
+          INSERT INTO restablecimientos (user_id, origen, vence_en, usado_en)
+          VALUES (@user, 'admin', now(), now())
+        '''),
+        parameters: {'user': userId},
+      );
+    });
+  }
+
+  /// Últimas 100 solicitudes, con la cuenta y un `estado` ya calculado.
+  Future<List<Map<String, dynamic>>> listarRestablecimientos() async {
+    final filas = await _pool.execute('''
+      SELECT r.id, r.user_id, r.origen, r.creado_en, r.vence_en, r.usado_en, r.anulado,
+             u.nombre, u.apellido, u.correo,
+             CASE
+               WHEN r.anulado THEN 'anulado'
+               WHEN r.usado_en IS NOT NULL THEN 'usado'
+               WHEN r.vence_en <= now() THEN 'vencido'
+               ELSE 'pendiente'
+             END AS estado
+      FROM restablecimientos r
+      JOIN users u ON u.id = r.user_id
+      ORDER BY r.creado_en DESC
+      LIMIT 100
+    ''');
+    return filas.map((fila) {
+      final mapa = fila.toColumnMap();
+      return {
+        'id': mapa['id'].toString(),
+        'userId': mapa['user_id'].toString(),
+        'nombre': '${mapa['nombre']} ${mapa['apellido']}'.trim(),
+        'correo': mapa['correo'],
+        'origen': mapa['origen'],
+        'estado': mapa['estado'],
+        'creadoEn': _fecha(mapa['creado_en']),
+        'venceEn': _fecha(mapa['vence_en']),
+        'usadoEn': _fecha(mapa['usado_en']),
+      };
+    }).toList();
+  }
+
+  /// Anula una solicitud pendiente: su enlace deja de servir.
+  Future<void> anularRestablecimiento(String solicitudId) async {
+    final resultado = await _pool.execute(
+      Sql.named('UPDATE restablecimientos SET anulado = TRUE WHERE id = @id AND usado_en IS NULL AND NOT anulado'),
+      parameters: {'id': solicitudId},
+    );
+    _exigirAfectada(resultado, 'Esa solicitud ya no está pendiente.');
+  }
+
+  void _validarPassword(String password) {
+    if (password.length < 8) {
+      throw ErrorApi(400, 'La contraseña debe tener al menos 8 caracteres.');
+    }
+  }
+
+  // ── Administración: cuentas ───────────────────────────────────────────
+
+  /// Cambia nombre, apellido, correo, rol, verificación y datos opcionales de una cuenta.
+  ///
+  /// Clave ausente en [datos] = sin cambio. [actorId] es el administrador que
+  /// edita: no puede quitarse a sí mismo el rol de administrador.
+  Future<Map<String, dynamic>> actualizarUsuarioAdmin(
+    String userId,
+    Map<String, dynamic> datos, {
+    required String actorId,
+  }) async {
+    final actual = await obtenerUsuario(userId);
+    if (actual == null) {
+      throw ErrorApi(404, 'No se encontró la cuenta.');
+    }
+    String campo(String clave) => datos.containsKey(clave) ? _texto(datos[clave]) : (actual[clave] ?? '').toString();
+    final nombre = campo('nombre');
+    final apellido = campo('apellido');
+    final correo = campo('correo').toLowerCase();
+    final rol = campo('rol');
+    if (nombre.isEmpty || apellido.isEmpty) {
+      throw ErrorApi(400, 'Nombre y apellido son obligatorios.');
+    }
+    if (!correo.contains('@') || !correo.contains('.')) {
+      throw ErrorApi(400, 'Ingresa un correo electrónico válido.');
+    }
+    if (!const {'comprador', 'vendedor', 'moderador', 'admin'}.contains(rol)) {
+      throw ErrorApi(400, 'El rol debe ser comprador, vendedor, moderador o admin.');
+    }
+    if (userId == actorId && rol != 'admin') {
+      throw ErrorApi(400, 'No puedes quitarte a ti mismo el rol de administrador.');
+    }
+    final verificado =
+        datos.containsKey('correoVerificado') ? datos['correoVerificado'] == true : actual['correoVerificado'] == true;
+    final opcionales = _datosOpcionales({
+      for (final clave in const ['telefono', 'numeroControl', 'carrera'])
+        clave: datos.containsKey(clave) ? datos[clave] : actual[clave],
+    });
+    try {
+      final filas = await _pool.execute(
+        Sql.named('''
+          UPDATE users
+          SET nombre = @nombre, apellido = @apellido, correo = @correo, rol = @rol::user_role,
+              correo_verificado = @verificado, telefono = @telefono, numero_control = @numero, carrera = @carrera
+          WHERE id = @id
+          RETURNING *
+        '''),
+        parameters: {
+          'nombre': nombre,
+          'apellido': apellido,
+          'correo': correo,
+          'rol': rol,
+          'verificado': verificado,
+          'telefono': opcionales['telefono'],
+          'numero': opcionales['numeroControl'],
+          'carrera': opcionales['carrera'],
+          'id': userId,
+        },
+      );
+      return _usuario(filas.first.toColumnMap());
+    } on ServerException catch (error) {
+      if (error.code == '23505') {
+        throw ErrorApi(400, 'Ya existe una cuenta con ese correo.');
+      }
+      rethrow;
+    }
+  }
+
+  // ── Administración: negocios y productos ──────────────────────────────
+
+  /// Negocio por id, con su promedio de reseñas, o null.
+  Future<Map<String, dynamic>?> vendedorPorId(String sellerId) async {
+    final fila = await _una('$_selectVendedores WHERE s.id = @id', {'id': sellerId});
+    return fila == null ? null : _vendedor(fila);
+  }
+
+  /// Edita cualquier negocio. Clave ausente en [datos] = sin cambio.
+  ///
+  /// `edificio` llega ya validado por la ruta contra el plano (vacío = sin punto).
+  /// `destacadoHasta` es una fecha ISO 8601 o vacío (promoción sin fin).
+  Future<Map<String, dynamic>> actualizarVendedorAdmin(String sellerId, Map<String, dynamic> datos) async {
+    final actual = await vendedorPorId(sellerId);
+    if (actual == null) {
+      throw ErrorApi(404, 'No se encontró ese negocio.');
+    }
+    String campo(String clave) => datos.containsKey(clave) ? _texto(datos[clave]) : (actual[clave] ?? '').toString();
+    bool interruptor(String clave) => datos.containsKey(clave) ? datos[clave] == true : actual[clave] == true;
+    final nombre = campo('nombreNegocio');
+    final categoria = campo('categoria');
+    final subtipo = campo('subtipo');
+    final descripcion = campo('descripcion');
+    final hasta = campo('destacadoHasta');
+    if (nombre.isEmpty || nombre.length > 120) {
+      throw ErrorApi(400, 'El negocio necesita un nombre de hasta 120 caracteres.');
+    }
+    if (!const {'producto', 'comida', 'servicio'}.contains(categoria)) {
+      throw ErrorApi(400, 'La categoría debe ser producto, comida o servicio.');
+    }
+    if (subtipo.length > 80 || descripcion.length > 500) {
+      throw ErrorApi(400, 'La especialidad admite 80 caracteres y la descripción 500.');
+    }
+    final fechaHasta = hasta.isEmpty ? null : DateTime.tryParse(hasta);
+    if (hasta.isNotEmpty && fechaHasta == null) {
+      throw ErrorApi(400, 'La fecha de fin de la promoción no es válida.');
+    }
+    await _pool.execute(
+      Sql.named('''
+        UPDATE sellers
+        SET nombre_negocio = @nombre, categoria = @categoria::seller_category, subtipo = @subtipo,
+            descripcion = @descripcion, edificio = @edificio, disponible = @disponible,
+            destacado = @destacado, destacado_hasta = @hasta
+        WHERE id = @id
+      '''),
+      parameters: {
+        'nombre': nombre,
+        'categoria': categoria,
+        'subtipo': _nulo(subtipo),
+        'descripcion': _nulo(descripcion),
+        'edificio': _nulo(campo('edificio').toUpperCase()),
+        'disponible': interruptor('disponible'),
+        'destacado': interruptor('destacado'),
+        'hasta': fechaHasta?.toUtc(),
+        'id': sellerId,
+      },
+    );
+    return (await vendedorPorId(sellerId))!;
+  }
+
+  /// Borra un negocio con sus productos (y sus reseñas y anuncios). La cuenta
+  /// sigue existiendo y pasa a comprador. Devuelve las fotos a borrar del disco.
+  Future<List<String>> eliminarNegocio(String sellerId) {
+    return _pool.runTx((conexion) async {
+      final negocio = await conexion.execute(
+        Sql.named('SELECT user_id FROM sellers WHERE id = @id'),
+        parameters: {'id': sellerId},
+      );
+      if (negocio.isEmpty) {
+        throw ErrorApi(404, 'No se encontró ese negocio.');
+      }
+      final fotos = await conexion.execute(
+        Sql.named('SELECT foto_url FROM products WHERE seller_id = @id AND foto_url IS NOT NULL'),
+        parameters: {'id': sellerId},
+      );
+      await conexion.execute(Sql.named('DELETE FROM sellers WHERE id = @id'), parameters: {'id': sellerId});
+      await conexion.execute(
+        Sql.named("UPDATE users SET rol = 'comprador' WHERE id = @user AND rol = 'vendedor'"),
+        parameters: {'user': negocio.first[0].toString()},
+      );
+      return [for (final fila in fotos) fila[0].toString()];
+    });
+  }
+
+  /// Borra cualquier producto. Devuelve su foto para borrar el archivo.
+  Future<String?> eliminarProductoAdmin(String productId) async {
+    final resultado = await _pool.execute(
+      Sql.named('DELETE FROM products WHERE id = @id RETURNING foto_url'),
+      parameters: {'id': productId},
+    );
+    _exigirAfectada(resultado, 'No se encontró ese producto.');
+    return resultado.first[0] as String?;
+  }
+
+  // ── Publicidad ────────────────────────────────────────────────────────
+
+  /// Anuncios publicados, ordenados por sección y posición.
+  ///
+  /// Cada uno trae el negocio completo en `vendedor` (o null), para que la
+  /// app abra su ficha al tocarlo sin otra petición.
+  Future<List<Map<String, dynamic>>> anuncios() async {
+    final filas = await _pool.execute('''
+      SELECT a.seccion, a.posicion, a.imagen_url, v.*
+      FROM anuncios a
+      LEFT JOIN ($_selectVendedores) v ON v.id = a.seller_id
+      ORDER BY a.seccion, a.posicion
+    ''');
+    return filas.map((fila) {
+      final mapa = fila.toColumnMap();
+      return {
+        'seccion': mapa['seccion'],
+        'posicion': mapa['posicion'],
+        'imagenUrl': mapa['imagen_url'],
+        'vendedor': mapa['id'] == null ? null : _vendedor(mapa),
+      };
+    }).toList();
+  }
+
+  /// Crea o reemplaza el anuncio de una posición. [sellerId] null = sin negocio enlazado.
+  Future<void> guardarAnuncio({
+    required int seccion,
+    required int posicion,
+    required String imagenUrl,
+    String? sellerId,
+  }) async {
+    try {
+      await _pool.execute(
+        Sql.named('''
+          INSERT INTO anuncios (seccion, posicion, imagen_url, seller_id)
+          VALUES (@seccion, @posicion, @imagen, @seller)
+          ON CONFLICT (seccion, posicion)
+          DO UPDATE SET imagen_url = EXCLUDED.imagen_url, seller_id = EXCLUDED.seller_id, actualizado_en = now()
+        '''),
+        parameters: {'seccion': seccion, 'posicion': posicion, 'imagen': imagenUrl, 'seller': sellerId},
+      );
+    } on ServerException catch (error) {
+      if (error.code == '23503') {
+        throw ErrorApi(404, 'No se encontró ese negocio.');
+      }
+      rethrow;
+    }
+  }
+
+  /// Quita el anuncio de una posición. La imagen se queda en medios (puede reutilizarse).
+  Future<void> eliminarAnuncio(int seccion, int posicion) async {
+    final resultado = await _pool.execute(
+      Sql.named('DELETE FROM anuncios WHERE seccion = @seccion AND posicion = @posicion'),
+      parameters: {'seccion': seccion, 'posicion': posicion},
+    );
+    _exigirAfectada(resultado, 'Esa posición ya estaba vacía.');
+  }
+
+  // ── Administración: avisos ────────────────────────────────────────────
+
+  /// Todos los avisos, activos e inactivos, del más reciente al más antiguo.
+  Future<List<Map<String, dynamic>>> avisosAdmin() async {
+    final filas = await _pool.execute('SELECT * FROM announcements ORDER BY publicado_en DESC');
+    return filas.map((fila) => _aviso(fila.toColumnMap())).toList();
+  }
+
+  /// Publica un aviso en la pantalla de inicio.
+  Future<Map<String, dynamic>> crearAviso(Map<String, dynamic> datos) async {
+    final (titulo, contenido) = _validarAviso(_texto(datos['titulo']), _texto(datos['contenido']));
+    final filas = await _pool.execute(
+      Sql.named('''
+        INSERT INTO announcements (titulo, contenido, activo)
+        VALUES (@titulo, @contenido, @activo)
+        RETURNING *
+      '''),
+      parameters: {'titulo': titulo, 'contenido': contenido, 'activo': datos['activo'] != false},
+    );
+    return _aviso(filas.first.toColumnMap());
+  }
+
+  /// Cambia título, contenido o si está activo. Clave ausente = sin cambio.
+  Future<Map<String, dynamic>> actualizarAviso(String id, Map<String, dynamic> datos) async {
+    final actual = await _una('SELECT * FROM announcements WHERE id = @id', {'id': id});
+    if (actual == null) {
+      throw ErrorApi(404, 'No se encontró ese aviso.');
+    }
+    final (titulo, contenido) = _validarAviso(
+      datos.containsKey('titulo') ? _texto(datos['titulo']) : actual['titulo'].toString(),
+      datos.containsKey('contenido') ? _texto(datos['contenido']) : actual['contenido'].toString(),
+    );
+    final filas = await _pool.execute(
+      Sql.named('''
+        UPDATE announcements SET titulo = @titulo, contenido = @contenido, activo = @activo
+        WHERE id = @id
+        RETURNING *
+      '''),
+      parameters: {
+        'titulo': titulo,
+        'contenido': contenido,
+        'activo': datos.containsKey('activo') ? datos['activo'] == true : actual['activo'] == true,
+        'id': id,
+      },
+    );
+    return _aviso(filas.first.toColumnMap());
+  }
+
+  /// Borra un aviso.
+  Future<void> eliminarAviso(String id) async {
+    final resultado = await _pool.execute(
+      Sql.named('DELETE FROM announcements WHERE id = @id'),
+      parameters: {'id': id},
+    );
+    _exigirAfectada(resultado, 'No se encontró ese aviso.');
+  }
+
+  (String, String) _validarAviso(String titulo, String contenido) {
+    if (titulo.isEmpty || titulo.length > 120) {
+      throw ErrorApi(400, 'El aviso necesita un título de hasta 120 caracteres.');
+    }
+    if (contenido.isEmpty || contenido.length > 2000) {
+      throw ErrorApi(400, 'El aviso necesita un texto de hasta 2000 caracteres.');
+    }
+    return (titulo, contenido);
+  }
+
+  // ── Administración: reseñas ───────────────────────────────────────────
+
+  /// Últimas 100 reseñas de toda la app, con producto, negocio y autor.
+  Future<List<Map<String, dynamic>>> calificacionesRecientes() async {
+    final filas = await _pool.execute('''
+      SELECT r.product_id, r.buyer_id, r.estrellas, r.comentario, r.creado_en,
+             p.nombre AS producto, s.nombre_negocio, u.nombre, u.apellido, u.correo
+      FROM ratings r
+      JOIN products p ON p.id = r.product_id
+      JOIN sellers s ON s.id = p.seller_id
+      JOIN users u ON u.id = r.buyer_id
+      ORDER BY r.creado_en DESC
+      LIMIT 100
+    ''');
+    return filas.map((fila) {
+      final mapa = fila.toColumnMap();
+      return {
+        'productoId': mapa['product_id'].toString(),
+        'autorId': mapa['buyer_id'].toString(),
+        'estrellas': mapa['estrellas'],
+        'comentario': mapa['comentario'],
+        'creadoEn': _fecha(mapa['creado_en']),
+        'producto': mapa['producto'],
+        'nombreNegocio': mapa['nombre_negocio'],
+        'autor': '${mapa['nombre']} ${mapa['apellido']}'.trim(),
+        'correo': mapa['correo'],
+      };
+    }).toList();
+  }
+
+  /// Borra la reseña de [autorId] sobre [productoId].
+  Future<void> eliminarCalificacion(String productoId, String autorId) async {
+    final resultado = await _pool.execute(
+      Sql.named('DELETE FROM ratings WHERE product_id = @p AND buyer_id = @b'),
+      parameters: {'p': productoId, 'b': autorId},
+    );
+    _exigirAfectada(resultado, 'No se encontró esa reseña.');
+  }
+
+  // ── Administración: resumen y registros ───────────────────────────────
+
+  /// Conteos para el tablero del administrador.
+  Future<Map<String, dynamic>> resumen() async {
+    final filas = await _pool.execute('''
+      SELECT
+        (SELECT COUNT(*) FROM users)::int AS usuarios,
+        (SELECT COUNT(*) FROM users WHERE bloqueado)::int AS bloqueados,
+        (SELECT COUNT(*) FROM users WHERE NOT correo_verificado)::int AS sin_verificar,
+        (SELECT COUNT(*) FROM users WHERE rol = 'comprador')::int AS compradores,
+        (SELECT COUNT(*) FROM users WHERE rol = 'vendedor')::int AS cuentas_vendedor,
+        (SELECT COUNT(*) FROM users WHERE rol = 'moderador')::int AS moderadores,
+        (SELECT COUNT(*) FROM users WHERE rol = 'admin')::int AS administradores,
+        (SELECT COUNT(*) FROM sellers)::int AS vendedores,
+        (SELECT COUNT(*) FROM sellers WHERE disponible)::int AS abiertos,
+        (SELECT COUNT(*) FROM sellers WHERE edificio IS NULL)::int AS sin_punto,
+        (SELECT COUNT(*) FROM products)::int AS productos,
+        (SELECT COUNT(*) FROM ratings)::int AS calificaciones,
+        (SELECT COUNT(*) FROM favorites)::int AS favoritos,
+        (SELECT COUNT(*) FROM announcements WHERE activo)::int AS avisos_activos,
+        (SELECT COUNT(*) FROM anuncios)::int AS anuncios,
+        (SELECT COUNT(*) FROM restablecimientos
+          WHERE usado_en IS NULL AND NOT anulado AND vence_en > now())::int AS restablecimientos_pendientes
+    ''');
+    final mapa = filas.first.toColumnMap();
+    // snake_case → camelCase, como el resto de la API.
+    return {
+      for (final entrada in mapa.entries)
+        entrada.key.replaceAllMapped(RegExp(r'_([a-z])'), (m) => m[1]!.toUpperCase()): entrada.value,
+    };
+  }
+
+  /// Tablas que el explorador de registros puede leer y sus columnas visibles.
+  ///
+  /// Solo lectura. `password_hash` nunca aparece. El nombre que manda el
+  /// cliente solo se usa para buscar en este mapa: el SQL se arma con estos
+  /// textos fijos, nunca con lo que escribe la persona.
+  static const Map<String, ({String columnas, String orden})> tablasVisibles = {
+    'users': (
+      columnas: 'id, nombre, apellido, correo, rol, telefono, numero_control, carrera, bloqueado, '
+          'correo_verificado, creado_en',
+      orden: 'creado_en DESC',
+    ),
+    'sellers': (
+      columnas: 'id, user_id, nombre_negocio, categoria, subtipo, descripcion, horario_apertura, horario_cierre, '
+          'dias_atencion, disponible, edificio, destacado, destacado_hasta, whatsapp, telegram, instagram, telefono_fijo',
+      orden: 'nombre_negocio',
+    ),
+    'products': (
+      columnas: 'id, seller_id, nombre, precio, descripcion, foto_url, agotado, veces_vendido, creado_en, actualizado_en',
+      orden: 'creado_en DESC',
+    ),
+    'ratings': (columnas: 'product_id, buyer_id, estrellas, comentario, creado_en', orden: 'creado_en DESC'),
+    'favorites': (columnas: 'user_id, seller_id', orden: 'user_id'),
+    'announcements': (columnas: 'id, titulo, contenido, activo, publicado_en', orden: 'publicado_en DESC'),
+    'anuncios': (columnas: 'seccion, posicion, imagen_url, seller_id, actualizado_en', orden: 'seccion, posicion'),
+    'ajustes': (columnas: 'clave, valor', orden: 'clave'),
+    'restablecimientos': (
+      columnas: 'id, user_id, origen, creado_en, vence_en, usado_en, anulado',
+      orden: 'creado_en DESC',
+    ),
+  };
+
+  /// Nombre y número de filas de cada tabla de [tablasVisibles].
+  Future<List<Map<String, dynamic>>> contarTablas() async {
+    final resultado = <Map<String, dynamic>>[];
+    for (final tabla in tablasVisibles.keys) {
+      final filas = await _pool.execute('SELECT COUNT(*)::int FROM $tabla');
+      resultado.add({'tabla': tabla, 'filas': filas.first[0]});
+    }
+    return resultado;
+  }
+
+  /// Una página de [tabla] (de [tablasVisibles]) como columnas y filas de valores simples.
+  Future<Map<String, dynamic>> leerTabla(String tabla, {int pagina = 1, int limite = 25}) async {
+    final definicion = tablasVisibles[tabla];
+    if (definicion == null) {
+      throw ErrorApi(404, 'Esa tabla no se puede consultar desde el panel.');
+    }
+    final tamano = limite.clamp(1, 100);
+    final numero = pagina < 1 ? 1 : pagina;
+    final total = await _pool.execute('SELECT COUNT(*)::int FROM $tabla');
+    final filas = await _pool.execute(
+      Sql.named('SELECT ${definicion.columnas} FROM $tabla ORDER BY ${definicion.orden} LIMIT @limite OFFSET @desde'),
+      parameters: {'limite': tamano, 'desde': (numero - 1) * tamano},
+    );
+    return {
+      'tabla': tabla,
+      'columnas': definicion.columnas.split(', '),
+      'filas': [
+        for (final fila in filas) [for (final valor in fila) _valorSimple(valor)],
+      ],
+      'total': total.first[0],
+      'pagina': numero,
+      'limite': tamano,
+    };
+  }
+
+  /// Valor de una columna listo para JSON (texto, número, booleano o null).
+  Object? _valorSimple(Object? valor) {
+    return switch (valor) {
+      null || bool() || num() || String() => valor,
+      DateTime() => valor.toUtc().toIso8601String(),
+      Time() => _hora(valor),
+      UndecodedBytes() => valor.asString,
+      _ => valor.toString(),
+    };
+  }
+
+  /// Fecha en ISO 8601 UTC, o null.
+  String? _fecha(Object? valor) => valor is DateTime ? valor.toUtc().toIso8601String() : valor?.toString();
+
+  Map<String, dynamic> _aviso(Map<String, dynamic> mapa) {
+    return {
+      'id': mapa['id'].toString(),
+      'titulo': mapa['titulo'],
+      'contenido': mapa['contenido'],
+      'activo': mapa['activo'] == true,
+      'publicadoEn': _fecha(mapa['publicado_en']),
+    };
   }
 
   Future<Map<String, dynamic>?> _una(String sql, Map<String, dynamic> parametros) async {
@@ -832,6 +1451,7 @@ class Repositorio {
       'bloqueado': fila['bloqueado'] == true,
       'perfilEditable': fila['perfil_editable'] == true,
       'correoVerificado': fila['correo_verificado'] == true,
+      'creadoEn': _fecha(fila['creado_en']),
     };
   }
 
@@ -853,6 +1473,7 @@ class Repositorio {
       'disponible': fila['disponible'] == true,
       'edificio': fila['edificio'],
       'destacado': fila['destacado'] == true,
+      'destacadoHasta': _fecha(fila['destacado_hasta']),
       'whatsapp': fila['whatsapp'],
       'telegram': fila['telegram'],
       'messenger': fila['messenger'],
