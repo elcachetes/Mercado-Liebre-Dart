@@ -11,7 +11,35 @@ import '../detalle_vendedor.dart';
 import '../sesion_dialogo.dart';
 import 'comun_admin.dart';
 
+/// Días sin usar la app a partir de los cuales un negocio se marca como inactivo ("fantasma").
+const int diasInactividad = 30;
+
+/// Verdadero si el dueño de [negocio] lleva [diasInactividad] días o más sin usar la app.
+bool negocioInactivo(Vendedor negocio, {DateTime? ahora}) {
+  final ultimo = negocio.ultimoAcceso;
+  return ultimo == null || (ahora ?? DateTime.now()).difference(ultimo).inDays >= diasInactividad;
+}
+
+/// "Último uso: hoy", "ayer", "hace 12 días (3 oct 2026)" o "sin registro".
+String textoUltimoUso(DateTime? fecha, {DateTime? ahora}) {
+  if (fecha == null) {
+    return 'Último uso: sin registro';
+  }
+  final referencia = ahora ?? DateTime.now();
+  final dias = DateTime(referencia.year, referencia.month, referencia.day)
+      .difference(DateTime(fecha.year, fecha.month, fecha.day))
+      .inDays;
+  return switch (dias) {
+    <= 0 => 'Último uso: hoy',
+    1 => 'Último uso: ayer',
+    _ => 'Último uso: hace $dias días (${fechaCorta(fecha)})',
+  };
+}
+
 /// Negocios: editar datos, punto del mapa y promoción; ver y borrar productos; eliminar el negocio.
+///
+/// Muestra el último uso de la app de cada dueño y filtra los inactivos
+/// para encontrar tiendas fantasma y cerrarlas o eliminarlas.
 class AdminVendedores extends StatefulWidget {
   /// Sesión de administrador.
   const AdminVendedores({super.key, required this.estado});
@@ -25,18 +53,21 @@ class AdminVendedores extends StatefulWidget {
 
 class _AdminVendedoresState extends State<AdminVendedores> {
   String _filtro = '';
+  bool _soloInactivos = false;
 
   @override
   Widget build(BuildContext context) {
     final estado = widget.estado;
     return CargaAdmin<List<Vendedor>>(
-      cargar: estado.api.vendedores,
+      cargar: estado.api.vendedoresAdmin,
       construir: (context, negocios, recargar) {
+        final inactivos = negocios.where((v) => negocioInactivo(v)).length;
         final visibles = negocios
             .where((v) =>
-                _filtro.isEmpty ||
-                v.nombreNegocio.toLowerCase().contains(_filtro) ||
-                (v.subtipo ?? '').toLowerCase().contains(_filtro))
+                (!_soloInactivos || negocioInactivo(v)) &&
+                (_filtro.isEmpty ||
+                    v.nombreNegocio.toLowerCase().contains(_filtro) ||
+                    (v.subtipo ?? '').toLowerCase().contains(_filtro)))
             .toList();
         return [
           Text('${negocios.length} negocios', style: Theme.of(context).textTheme.titleMedium),
@@ -47,6 +78,18 @@ class _AdminVendedoresState extends State<AdminVendedores> {
           ),
           const SizedBox(height: Espacio.m),
           BuscadorAdmin(pista: 'Nombre o especialidad', alCambiar: (texto) => setState(() => _filtro = texto)),
+          Padding(
+            padding: const EdgeInsets.only(bottom: Espacio.s),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FilterChip(
+                label: Text('Sin usar la app en $diasInactividad+ días ($inactivos)'),
+                avatar: const Icon(Icons.hourglass_bottom, size: 18),
+                selected: _soloInactivos,
+                onSelected: (valor) => setState(() => _soloInactivos = valor),
+              ),
+            ),
+          ),
           Card(
             child: Column(
               children: [
@@ -78,6 +121,24 @@ class _FilaNegocio extends StatelessWidget {
         await showDialog<void>(context: context, builder: (_) => _ProductosNegocio(estado: estado, negocio: negocio));
       case 'ficha':
         await abrirVendedor(context, estado, negocio);
+      case 'cerrar':
+        if (!await confirmar(
+          context,
+          titulo: 'Marcar como cerrado',
+          mensaje: '"${negocio.nombreNegocio}" dejará de aparecer en "Abiertos ahora" y en el filtro "Solo abiertos". '
+              'Su dueño puede volver a abrirlo desde "Mi negocio".',
+          accion: 'Cerrar',
+        )) {
+          return;
+        }
+        if (context.mounted &&
+            await intentar(
+              context,
+              () => estado.api.actualizarVendedorAdmin(negocio.id, {'disponible': false}),
+              exito: 'Negocio marcado como cerrado.',
+            )) {
+          await alCambiar();
+        }
       case 'eliminar':
         if (!await confirmar(
           context,
@@ -113,6 +174,7 @@ class _FilaNegocio extends StatelessWidget {
             ),
             Etiqueta(punto == null ? 'Sin punto' : 'Punto ${punto.codigo}', color: punto == null ? esquema.error : null),
             if (negocio.destacado) Etiqueta('Destacado', color: ColoresLiebre.estrella),
+            Etiqueta(textoUltimoUso(negocio.ultimoAcceso), color: negocioInactivo(negocio) ? esquema.error : null),
           ],
         ),
       ),
@@ -127,6 +189,11 @@ class _FilaNegocio extends StatelessWidget {
             child: ListTile(leading: Icon(Icons.inventory_2_outlined), title: Text('Productos')),
           ),
           const PopupMenuItem(value: 'ficha', child: ListTile(leading: Icon(Icons.visibility_outlined), title: Text('Ver ficha'))),
+          if (negocio.disponible)
+            const PopupMenuItem(
+              value: 'cerrar',
+              child: ListTile(leading: Icon(Icons.storefront_outlined), title: Text('Marcar como cerrado')),
+            ),
           PopupMenuItem(
             value: 'eliminar',
             child: ListTile(

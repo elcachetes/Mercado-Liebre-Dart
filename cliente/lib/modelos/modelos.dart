@@ -91,6 +91,28 @@ class Usuario {
   /// Verdadero si ve el panel de administración.
   bool get esAdmin => rol == 'admin';
 
+  /// Copia de la cuenta con otro [rol].
+  ///
+  /// La usa la vista previa (`EstadoApp.vista`) para mostrar la app como la ve
+  /// ese rol. No cambia nada en el servidor: la API sigue usando el rol real.
+  Usuario conRol(String rol) {
+    return Usuario(
+      id: id,
+      nombre: nombre,
+      apellido: apellido,
+      correo: correo,
+      rol: rol,
+      telefono: telefono,
+      numeroControl: numeroControl,
+      carrera: carrera,
+      fotoPerfilUrl: fotoPerfilUrl,
+      bloqueado: bloqueado,
+      perfilEditable: perfilEditable,
+      correoVerificado: correoVerificado,
+      creadoEn: creadoEn,
+    );
+  }
+
   /// Inicial para el avatar.
   String get inicial => nombre.isEmpty ? '?' : nombre.characters.first.toUpperCase();
 
@@ -138,6 +160,7 @@ class Vendedor {
     this.telefonoFijo,
     this.promedioEstrellas = 0,
     this.totalResenas = 0,
+    this.ultimoAcceso,
   });
 
   /// Id del negocio.
@@ -172,6 +195,9 @@ class Vendedor {
 
   /// Fin de la promoción; null = sin fecha de fin.
   final DateTime? destacadoHasta;
+
+  /// Último uso de la app de la cuenta dueña. Solo lo manda `GET /api/admin/vendedores`.
+  final DateTime? ultimoAcceso;
 
   /// Hora de apertura `HH:mm`, si el vendedor la definió.
   final String? horarioApertura;
@@ -243,6 +269,7 @@ class Vendedor {
       telefonoFijo: json['telefonoFijo'] as String?,
       promedioEstrellas: (json['promedioEstrellas'] as num?)?.toDouble() ?? 0,
       totalResenas: (json['totalResenas'] as num?)?.toInt() ?? 0,
+      ultimoAcceso: DateTime.tryParse(json['ultimoAcceso'] as String? ?? '')?.toLocal(),
     );
   }
 }

@@ -39,12 +39,14 @@ cliente/lib/
   main.dart              Raíz: ListenableBuilder sobre EstadoApp, tema claro/oscuro.
   configuracion.dart     API_BASE_URL (dart-define). "same" = mismo dominio (producción).
   servicios/api.dart     ClienteApi: un método por endpoint. Todo error → ErrorApi.
-  servicios/estado.dart  EstadoApp (ChangeNotifier): sesión, tema, apariencia, anuncios, favoritos, eliminarCuenta.
+  servicios/estado.dart  EstadoApp (ChangeNotifier): sesión, tema, apariencia, anuncios, favoritos, eliminarCuenta,
+                         vista previa (VistaCuenta: admin → vendedor/usuario, vendedor → usuario; solo cambia la interfaz).
   servicios/instalacion.dart  InstalacionApp: botón "Instalar app" (PWA). Web: instalacion_web.dart ↔ window.liebrePwa de web/index.html.
   modelos/modelos.dart   Usuario, Vendedor, Producto, Calificacion, Apariencia, Aviso, Anuncio, Restablecimiento,
                          ResenaAdmin, PaginaTabla… con fromJson.
   pantallas/             Una pantalla por archivo. marco.dart = barra roja con las pestañas,
-                         botón Reportar, menú de la cuenta y barra lateral de publicidad.
+                         botón Favoritos, menú de la cuenta (secciones, vistas previas, Reportar falla)
+                         y barra lateral de publicidad.
   pantallas/perfil_pantalla.dart  SeccionCuenta: cada opción del menú del nombre es una página.
   pantallas/panel_negocio.dart    "Mi negocio": catálogo (foto de galería o cámara con image_picker), horario, contacto, eliminar cuenta.
   pantallas/panel_admin.dart      PanelAdmin: página con pestañas. Lista `pestanas`; cada una vive en pantallas/admin/.
@@ -57,7 +59,8 @@ cliente/lib/
   widgets/tarjeta_producto.dart  TarjetaProducto y MiniaturaProducto (foto o icono).
   widgets/datos_opcionales.dart  CamposOpcionales (teléfono, nº de control, carrera), carrerasItcj, ValidarOpcional.
   widgets/selector_dias.dart     SelectorDias + diasDesdeTexto/textoDeDias ("Lun-Vie", "Lun, Mié, Vie").
-  widgets/publicidad.dart        BarraPublicidad (dos carruseles) y EspacioPublicitario (carrusel: rota cada duracionAnuncio, toca → ficha).
+  widgets/publicidad.dart        BarraPublicidad (dos carruseles, desde anchoBarraLateral), AnunciosEnLista (In-Feed en búsqueda,
+                                 pantallas angostas; intercalarAnuncios) y EspacioPublicitario (carrusel: rota cada duracionAnuncio).
   widgets/eliminar_cuenta.dart   TarjetaEliminarCuenta + DialogoEliminarCuenta (pide contraseña, vuelve a Inicio).
   widgets/instalar_app.dart      BotonInstalar (barra roja), InvitacionInstalar (Inicio en celular), instalarApp.
   widgets/reporte_dialogo.dart   mostrarReporte: formulario de fallas, quejas y sugerencias.
@@ -104,6 +107,8 @@ herramientas/            Scripts de mantenimiento (generar_iconos.py).
 | Un punto del mapa (`cliente/lib/mapa/puntos_campus.dart`) | `servidor/lib/plano.dart`. El test `plano_sincronizado_test` lo exige. |
 | Una clave de apariencia (`servidor/lib/apariencia.dart`)  | Clase `Apariencia` en `cliente/lib/modelos/modelos.dart` (campo, `fromJson`, `toJson`, `predeterminada`) y `pantallas/admin/admin_apariencia.dart`. |
 | Número de carruseles o de imágenes (`seccionesPublicidad`, `anunciosPorSeccion`) | `CHECK` de la tabla `anuncios` en `schema.sql`, `Anuncio.secciones/porSeccion` en el cliente. |
+| Dónde va la publicidad (lateral o en la lista)    | Solo `anchoBarraLateral`, `resultadosAntesDeAnuncio` y `resultadosEntreAnuncios` en `widgets/publicidad.dart`. |
+| Inactividad de un negocio (30 días)               | `diasInactividad` en `admin/admin_vendedores.dart`. El último uso se anota en `_Sesion.anotarAcceso` (`rutas.dart`). |
 | Tiempo de cada anuncio                            | Solo `duracionAnuncio` en `widgets/publicidad.dart` (el texto de `admin_publicidad.dart` lo lee de ahí). |
 | Algo que pertenece a una cuenta (tabla nueva con `user_id` o `seller_id`) | `ON DELETE CASCADE` en la llave foránea, para que "Eliminar cuenta" lo borre. Si guarda archivos en `/medios`, devuélvelos en `Repositorio.eliminarUsuario`. |
 | Una tabla que el admin deba poder consultar       | `Repositorio.tablasVisibles` (columnas fijas, nunca `password_hash`) y `_nombres` en `admin_base_datos.dart`. |

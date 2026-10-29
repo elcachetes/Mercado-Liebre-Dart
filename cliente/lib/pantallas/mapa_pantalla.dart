@@ -132,7 +132,8 @@ class _MapaPantallaState extends State<MapaPantalla> {
     final enPunto = _porPunto[punto.codigo] ?? const <Vendedor>[];
     final abiertos = enPunto.where((vendedor) => vendedor.disponible).toList();
     final cerrados = enPunto.where((vendedor) => !vendedor.disponible).toList();
-    final usuario = widget.estado.usuario;
+    // Respeta la vista previa: en "vista de usuario" un vendedor no ve el botón de registrar.
+    final usuario = widget.estado.usuarioVisible;
 
     Widget tarjeta(BuildContext contexto, Vendedor vendedor) {
       return Padding(

@@ -39,13 +39,13 @@ enum SeccionCuenta {
   /// Icono del menú.
   final IconData icono;
 
-  /// Secciones que puede abrir [usuario], en el orden del menú.
+  /// Secciones del menú de la cuenta para [usuario], en orden.
   ///
   /// vendedor → "Mi negocio"; admin → "Administración"; admin o moderador → "Moderación".
+  /// "Favoritos" no va aquí: tiene su propio botón en la barra roja.
   static List<SeccionCuenta> para(Usuario usuario) {
     return [
       datos,
-      favoritos,
       if (usuario.esVendedor) negocio,
       if (usuario.esAdmin) administracion,
       if (usuario.esModerador) moderacion,
@@ -212,7 +212,19 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
       case SeccionCuenta.negocio:
         final negocio = _negocio;
         if (negocio == null) {
-          return [if (!_cargando) Text('Tu cuenta todavía no tiene un perfil de negocio.', style: tenue)];
+          if (_cargando) {
+            return [];
+          }
+          // Un admin en "vista de vendedor" ve el menú del vendedor, pero no tiene negocio propio.
+          return [
+            Text(
+              usuario.esAdmin
+                  ? 'Estás en la vista de vendedor. Tu cuenta de administrador no tiene un negocio propio; '
+                      'para revisar el de alguien, vuelve a tu vista y ábrelo en Administración → Negocios → Ver ficha.'
+                  : 'Tu cuenta todavía no tiene un perfil de negocio.',
+              style: tenue,
+            ),
+          ];
         }
         return [PanelNegocio(estado: widget.estado, negocio: negocio, alCambiar: _cargar)];
       case SeccionCuenta.administracion:

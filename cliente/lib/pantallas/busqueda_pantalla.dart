@@ -7,6 +7,7 @@ import '../servicios/api.dart';
 import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
+import '../widgets/publicidad.dart';
 import '../widgets/tarjeta_producto.dart';
 import '../widgets/tarjeta_vendedor.dart';
 import 'detalle_producto.dart';
@@ -92,6 +93,9 @@ String _normalizar(String texto) {
 }
 
 /// Búsqueda y exploración por categoría.
+///
+/// En pantallas sin barra lateral de publicidad intercala [AnunciosEnLista]
+/// entre los resultados (ver [intercalarAnuncios]).
 ///
 /// Sin texto lista todo lo de la categoría elegida (por defecto, solo lo
 /// abierto ahora). Con texto espera [_pausa] tras la última tecla antes de
@@ -315,10 +319,26 @@ class _BusquedaPantallaState extends State<BusquedaPantalla> {
       );
     }
     final ordenados = ordenarResultados(_resultados, _orden);
+    // Sin barra lateral (celular), la publicidad va entre los resultados.
+    final orden = MediaQuery.sizeOf(context).width < anchoBarraLateral
+        ? intercalarAnuncios(ordenados.length)
+        : [for (var i = 0; i < ordenados.length; i++) i];
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(Espacio.l, Espacio.s, Espacio.l, Espacio.xl),
-      itemCount: ordenados.length,
-      itemBuilder: (context, indice) => _Resultado(resultado: ordenados[indice], estado: widget.estado),
+      itemCount: orden.length,
+      itemBuilder: (context, posicion) {
+        final indice = orden[posicion];
+        if (indice == null) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: Espacio.l),
+            child: AnunciosEnLista(
+              anuncios: widget.estado.anuncios,
+              alAbrirVendedor: (vendedor) => abrirVendedor(context, widget.estado, vendedor),
+            ),
+          );
+        }
+        return _Resultado(resultado: ordenados[indice], estado: widget.estado);
+      },
     );
   }
 }

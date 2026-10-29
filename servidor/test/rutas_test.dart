@@ -153,6 +153,7 @@ void main() {
       ('GET', '/api/admin/restablecimientos'),
       ('PATCH', '/api/admin/usuarios/x'),
       ('POST', '/api/admin/usuarios/x/contrasena'),
+      ('GET', '/api/admin/vendedores'),
       ('PATCH', '/api/admin/vendedores/x'),
       ('DELETE', '/api/admin/productos/x'),
       ('PUT', '/api/admin/anuncios/1/1'),

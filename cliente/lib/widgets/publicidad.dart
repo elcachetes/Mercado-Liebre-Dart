@@ -10,6 +10,16 @@ import 'comunes.dart';
 /// Ancho de la barra lateral de publicidad en pantallas amplias.
 const double anchoBarraPublicidad = 180;
 
+/// Desde este ancho de pantalla la publicidad va en [BarraPublicidad];
+/// más angosto (celulares), va entre los resultados de búsqueda ([AnunciosEnLista]).
+const double anchoBarraLateral = 840;
+
+/// Resultados de búsqueda antes del primer bloque de anuncios en pantallas angostas.
+const int resultadosAntesDeAnuncio = 3;
+
+/// Resultados entre un bloque de anuncios y el siguiente.
+const int resultadosEntreAnuncios = 6;
+
 /// Tiempo que se muestra cada imagen de un carrusel. Todas duran lo mismo.
 const Duration duracionAnuncio = Duration(seconds: 6);
 
@@ -46,6 +56,93 @@ class BarraPublicidad extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Orden de una lista de [total] resultados con bloques de anuncios intercalados.
+///
+/// Cada elemento es el índice de un resultado, o null donde va un bloque de
+/// anuncios: el primero tras [antes] resultados (tras el último si hay menos)
+/// y luego uno cada [cada]. Sin resultados no hay anuncios.
+List<int?> intercalarAnuncios(
+  int total, {
+  int antes = resultadosAntesDeAnuncio,
+  int cada = resultadosEntreAnuncios,
+}) {
+  final orden = <int?>[];
+  for (var i = 0; i < total; i++) {
+    orden.add(i);
+    final mostrados = i + 1;
+    if (mostrados == antes || (mostrados > antes && (mostrados - antes) % cada == 0)) {
+      orden.add(null);
+    }
+  }
+  if (total > 0 && total < antes) {
+    orden.add(null);
+  }
+  return orden;
+}
+
+/// Bloque de anuncios dentro de una lista (In-Feed), para pantallas sin [BarraPublicidad].
+///
+/// Pone los [Anuncio.secciones] carruseles lado a lado. El alto sigue la
+/// proporción de las imágenes recomendadas (320 × 600 px) hasta [altoMaximo],
+/// para que se recorten lo menos posible.
+class AnunciosEnLista extends StatelessWidget {
+  /// [anuncios] suele ser `EstadoApp.anuncios`.
+  const AnunciosEnLista({super.key, required this.anuncios, required this.alAbrirVendedor});
+
+  /// Alto máximo del bloque, para no ocupar toda la pantalla en tabletas.
+  static const double altoMaximo = 320;
+
+  /// Alto entre ancho de las imágenes recomendadas.
+  static const double proporcion = 600 / 320;
+
+  /// Todos los anuncios publicados (de ambas secciones).
+  final List<Anuncio> anuncios;
+
+  /// Abre la ficha del negocio anunciado dentro de la app.
+  final ValueChanged<Vendedor> alAbrirVendedor;
+
+  @override
+  Widget build(BuildContext context) {
+    final esquema = Theme.of(context).colorScheme;
+    return Semantics(
+      container: true,
+      label: 'Publicidad',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: Espacio.xs, bottom: Espacio.xs),
+            child: Text('Publicidad', style: TextStyle(color: esquema.onSurfaceVariant, fontSize: 12)),
+          ),
+          LayoutBuilder(
+            builder: (context, limites) {
+              const separacion = Espacio.s;
+              final ancho = (limites.maxWidth - separacion * (Anuncio.secciones - 1)) / Anuncio.secciones;
+              return SizedBox(
+                height: (ancho * proporcion).clamp(120.0, altoMaximo),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var seccion = 1; seccion <= Anuncio.secciones; seccion++) ...[
+                      if (seccion > 1) const SizedBox(width: separacion),
+                      Expanded(
+                        child: EspacioPublicitario(
+                          anuncios: anunciosDeSeccion(anuncios, seccion),
+                          alAbrirVendedor: alAbrirVendedor,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }

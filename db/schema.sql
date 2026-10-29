@@ -153,3 +153,10 @@ CREATE TABLE IF NOT EXISTS restablecimientos (
 );
 CREATE INDEX IF NOT EXISTS idx_restablecimientos_user ON restablecimientos (user_id);
 CREATE INDEX IF NOT EXISTS idx_restablecimientos_creado ON restablecimientos (creado_en DESC);
+
+-- Último uso de la app: inicio de sesión o cualquier petición con token.
+-- Se anota como máximo una vez por hora. El panel de administración lo usa
+-- para encontrar negocios abandonados ("fantasma"). El DEFAULT cuenta el
+-- registro como uso; las cuentas que ya existían empiezan con la fecha en
+-- que se agregó la columna (la inactividad se mide desde ese despliegue).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ultimo_acceso TIMESTAMPTZ DEFAULT now();

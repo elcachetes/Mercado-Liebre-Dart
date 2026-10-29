@@ -322,6 +322,34 @@ class Repositorio {
     return filas.map((fila) => _vendedor(fila.toColumnMap())).toList();
   }
 
+  /// Todos los negocios con `ultimoAcceso` (último uso de la app de su dueño).
+  ///
+  /// Solo para el administrador. Primero los que llevan más tiempo sin usarla,
+  /// para encontrar tiendas fantasma.
+  Future<List<Map<String, dynamic>>> listarVendedoresAdmin() async {
+    final filas = await _pool.execute('''
+      SELECT v.*, u.ultimo_acceso
+      FROM ($_selectVendedores) v
+      JOIN users u ON u.id = v.user_id
+      ORDER BY u.ultimo_acceso ASC NULLS FIRST, v.nombre_negocio ASC
+    ''');
+    return filas.map((fila) {
+      final mapa = fila.toColumnMap();
+      return {..._vendedor(mapa), 'ultimoAcceso': _fecha(mapa['ultimo_acceso'])};
+    }).toList();
+  }
+
+  /// Anota que [userId] usó la app. Solo escribe si el registro anterior tiene más de una hora.
+  Future<void> registrarAcceso(String userId) async {
+    await _pool.execute(
+      Sql.named('''
+        UPDATE users SET ultimo_acceso = now()
+        WHERE id = @id AND (ultimo_acceso IS NULL OR ultimo_acceso < now() - interval '1 hour')
+      '''),
+      parameters: {'id': userId},
+    );
+  }
+
   /// Perfil de negocio del usuario, o null si no es vendedor.
   Future<Map<String, dynamic>?> vendedorDeUsuario(String userId) async {
     final fila = await _una('$_selectVendedores WHERE s.user_id = @id', {'id': userId});

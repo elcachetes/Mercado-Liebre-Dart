@@ -336,6 +336,11 @@ class ClienteApi {
     await _objeto('POST', '/api/admin/restablecimientos/$id/anular');
   }
 
+  /// Todos los negocios con el último uso de la app de su dueño, primero los más inactivos.
+  Future<List<Vendedor>> vendedoresAdmin() async {
+    return (await _lista('/api/admin/vendedores')).map(Vendedor.fromJson).toList();
+  }
+
   /// Edita cualquier negocio (nombre, categoría, punto del mapa, destacado…).
   Future<Vendedor> actualizarVendedorAdmin(String id, Map<String, dynamic> cambios) async {
     return Vendedor.fromJson(await _objeto('PATCH', '/api/admin/vendedores/$id', cambios));

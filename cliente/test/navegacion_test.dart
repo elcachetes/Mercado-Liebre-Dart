@@ -35,6 +35,13 @@ MockClient apiFalsa({Map<String, dynamic>? usuario, List<Map<String, dynamic>>? 
       '/api/favoritos' || '/api/vendedores' || '/api/calificaciones' => <dynamic>[],
       '/api/vendedores/destacados' || '/api/productos/mas-vendidos' || '/api/avisos' => <dynamic>[],
       '/api/reportes' => <String, dynamic>{'ok': true},
+      '/api/buscar' => [
+          for (var i = 1; i <= 4; i++)
+            {
+              'vendedor': {'id': 's$i', 'userId': 'u$i', 'nombreNegocio': 'Negocio $i', 'categoria': 'comida'},
+              'productos': <dynamic>[],
+            },
+        ],
       _ => null,
     };
     if (cuerpo == null) {
@@ -72,7 +79,8 @@ void main() {
       expect(find.descendant(of: barra, matching: find.text('Inicio')), findsOneWidget);
       expect(find.descendant(of: barra, matching: find.text('Búsqueda')), findsOneWidget);
       expect(find.descendant(of: barra, matching: find.text('Mapa')), findsOneWidget);
-      expect(find.descendant(of: barra, matching: find.text('Reportar')), findsOneWidget);
+      expect(find.descendant(of: barra, matching: find.text('Favoritos')), findsOneWidget);
+      expect(find.descendant(of: barra, matching: find.text('Reportar')), findsNothing);
       expect(find.byType(NavigationRail), findsNothing);
       expect(find.byType(NavigationBar), findsNothing);
       expect(find.byType(EspacioPublicitario), findsNWidgets(2));
@@ -85,8 +93,34 @@ void main() {
       expect(find.byType(NavigationBar), findsNothing);
       expect(find.byType(BarraPublicidad), findsNothing);
       expect(find.byTooltip('Mapa'), findsOneWidget);
-      expect(find.byTooltip('Reportar falla, queja o sugerencia'), findsOneWidget);
+      expect(find.byTooltip('Favoritos'), findsOneWidget);
+      expect(find.byTooltip('Reportar falla, queja o sugerencia'), findsNothing);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('en el celular la publicidad va entre los resultados de búsqueda', (tester) async {
+      // Menos de anchoBarraLateral. No se usa 360 px: la fuente de pruebas (Ahem) es mucho
+      // más ancha que la real y desborda la fila "Solo abiertos / Ordenar", que no cambia aquí.
+      await montar(tester, tamano: const Size(700, 1000));
+
+      await tester.tap(find.byTooltip('Búsqueda'));
+      await tester.pumpAndSettle();
+
+      // 4 resultados: un bloque después del tercero, con los dos carruseles.
+      await tester.scrollUntilVisible(find.byType(AnunciosEnLista), 200, scrollable: find.byType(Scrollable).last);
+      expect(find.byType(AnunciosEnLista), findsOneWidget);
+      expect(find.descendant(of: find.byType(AnunciosEnLista), matching: find.byType(EspacioPublicitario)), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('en pantalla amplia la búsqueda no intercala publicidad', (tester) async {
+      await montar(tester);
+
+      await tester.tap(find.descendant(of: find.byType(AppBar), matching: find.text('Búsqueda')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Negocio 4'), findsOneWidget);
+      expect(find.byType(AnunciosEnLista), findsNothing);
     });
 
     testWidgets('la liebre regresa a Inicio desde otra pestaña', (tester) async {
@@ -111,15 +145,73 @@ void main() {
       await tester.tap(find.text('Ana'));
       await tester.pumpAndSettle();
 
-      for (final opcion in ['Mis datos', 'Favoritos', 'Administración', 'Moderación', 'Cerrar sesión']) {
+      for (final opcion in [
+        'Mis datos',
+        'Administración',
+        'Moderación',
+        'Ver como vendedor',
+        'Ver como usuario',
+        'Reportar falla',
+        'Cerrar sesión',
+      ]) {
         expect(find.text(opcion), findsOneWidget, reason: opcion);
       }
       expect(find.text('Mi negocio'), findsNothing);
+      expect(find.text('Volver a mi vista'), findsNothing);
 
       await tester.tap(find.text('Mis datos'));
       await tester.pumpAndSettle();
       expect(find.text('ana@itcj.edu.mx'), findsOneWidget);
       expect(find.byType(BackButton), findsOneWidget);
+    });
+
+    testWidgets('el admin cambia a vista de usuario y de vendedor, y vuelve a la suya', (tester) async {
+      final estado = await montar(tester, usuario: usuarioJson(rol: 'admin'));
+
+      await tester.tap(find.text('Ana'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ver como usuario'));
+      await tester.pumpAndSettle();
+      expect(estado.vista, VistaCuenta.comprador);
+      expect(find.text('Vista de usuario: así ven la app los compradores.'), findsOneWidget);
+
+      await tester.tap(find.text('Ana'));
+      await tester.pumpAndSettle();
+      expect(find.text('Administración'), findsNothing);
+      expect(find.text('Moderación'), findsNothing);
+      await tester.tap(find.text('Ver como vendedor'));
+      await tester.pumpAndSettle();
+      expect(find.text('Vista de vendedor: así ven la app los vendedores.'), findsOneWidget);
+
+      await tester.tap(find.text('Ana'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mi negocio'), findsOneWidget);
+      await tester.tap(find.text('Volver a mi vista'));
+      await tester.pumpAndSettle();
+      expect(estado.vista, VistaCuenta.propia);
+      expect(find.textContaining('Vista de'), findsNothing);
+    });
+
+    testWidgets('un vendedor solo puede ver como usuario, y la banda tiene "Mi tienda"', (tester) async {
+      await montar(tester, usuario: usuarioJson(rol: 'vendedor'));
+
+      await tester.tap(find.text('Ana'));
+      await tester.pumpAndSettle();
+      expect(find.text('Ver como vendedor'), findsNothing);
+      await tester.tap(find.text('Ver como usuario'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Mi tienda'), findsOneWidget);
+      await tester.tap(find.text('Salir'));
+      await tester.pumpAndSettle();
+      expect(find.text('Mi tienda'), findsNothing);
+    });
+
+    testWidgets('la vista previa se reinicia al cerrar sesión', (tester) async {
+      final estado = await montar(tester, usuario: usuarioJson(rol: 'admin'));
+      estado.cambiarVista(VistaCuenta.vendedor);
+      await estado.salir();
+      expect(estado.vista, VistaCuenta.propia);
     });
 
     testWidgets('una cuenta sin verificar ve el aviso en lugar del formulario de calificación', (tester) async {
@@ -171,7 +263,10 @@ void main() {
       final enviados = <Map<String, dynamic>>[];
       await montar(tester, enviados: enviados);
 
-      await tester.tap(find.text('Reportar'));
+      // Invitado: el enlace está al final de Inicio.
+      final enlace = find.text('Reportar una falla, queja o sugerencia');
+      await tester.ensureVisible(enlace);
+      await tester.tap(enlace);
       await tester.pumpAndSettle();
       expect(find.text('Adjuntar foto (opcional)'), findsOneWidget);
 
@@ -179,7 +274,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(FormularioReporte), findsNothing);
 
-      await tester.tap(find.text('Reportar'));
+      await tester.tap(enlace);
       await tester.pumpAndSettle();
       await tester.enterText(find.widgetWithText(TextFormField, 'Correo electrónico o número de control'), '20111234');
       await tester.tap(find.text('Enviar'));

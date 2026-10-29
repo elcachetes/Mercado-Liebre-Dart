@@ -174,6 +174,7 @@ responde 404.
 
 | Método | Ruta | Cuerpo |
 |--------|------|--------|
+| GET | `/api/admin/vendedores` | — → lista de `vendedor` con `ultimoAcceso`: último uso de la app de su dueño (ISO 8601; se anota al entrar y en cualquier petición con token, máximo una vez por hora). Primero los más inactivos. |
 | PATCH | `/api/admin/vendedores/<id>` | Cualquier subconjunto de `nombreNegocio, categoria, subtipo, descripcion, edificio, disponible, destacado, destacadoHasta` → `vendedor`. `edificio` es un código del plano o `""` (sin punto). `destacadoHasta` ISO 8601 o `""` (sin fin). |
 | DELETE | `/api/admin/vendedores/<id>` | — Borra el negocio con productos, fotos, reseñas y anuncios. La cuenta queda como comprador. |
 | DELETE | `/api/admin/productos/<id>` | — Borra cualquier producto con su foto. |

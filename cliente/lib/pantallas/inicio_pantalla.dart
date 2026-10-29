@@ -8,6 +8,7 @@ import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
 import '../widgets/instalar_app.dart';
+import '../widgets/reporte_dialogo.dart';
 import '../widgets/tarjeta_producto.dart';
 import '../widgets/tarjeta_vendedor.dart';
 import 'detalle_producto.dart';
@@ -175,6 +176,17 @@ class _InicioPantallaState extends State<InicioPantalla> {
                   alTocar: () => abrirProducto(context, widget.estado, producto),
                 ),
               ),
+          ],
+          // Con sesión, "Reportar falla" está en el menú de la cuenta.
+          if (usuario == null) ...[
+            const SizedBox(height: Espacio.l),
+            Center(
+              child: TextButton.icon(
+                onPressed: () => mostrarReporte(context, widget.estado),
+                icon: const Icon(Icons.feedback_outlined),
+                label: const Text('Reportar una falla, queja o sugerencia'),
+              ),
+            ),
           ],
         ],
       ),

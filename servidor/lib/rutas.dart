@@ -97,6 +97,7 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
     // La contraseña va tal cual: los espacios forman parte de ella.
     final password = (cuerpo['password'] ?? '').toString();
     final usuario = await repositorio.iniciarSesion(_texto(cuerpo, 'correo'), password);
+    sesion.anotarAcceso(usuario['id'] as String);
     return _json(200, {'token': tokens.emitir(usuario['id'] as String), 'usuario': usuario});
   });
 
@@ -544,6 +545,11 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
   });
 
   // ── Administración: negocios, productos y mapa ────────────────────────
+  router.get('/api/admin/vendedores', (Request request) async {
+    await sesion.admin(request);
+    return _json(200, await repositorio.listarVendedoresAdmin());
+  });
+
   router.patch('/api/admin/vendedores/<id>', (Request request, String id) async {
     await sesion.admin(request);
     final cuerpo = await _cuerpo(request);
@@ -765,6 +771,9 @@ class _Sesion {
   final Repositorio repositorio;
   final TokenSesion tokens;
 
+  /// Última vez que este proceso anotó el acceso de cada cuenta.
+  final Map<String, DateTime> _accesos = {};
+
   /// Cualquier cuenta válida y no bloqueada.
   Future<Map<String, dynamic>> usuario(Request request) async {
     final encabezado = request.headers['authorization'] ?? '';
@@ -782,7 +791,22 @@ class _Sesion {
     if (usuario['bloqueado'] == true) {
       throw ErrorApi(403, 'Esta cuenta fue bloqueada.');
     }
+    anotarAcceso(id);
     return usuario;
+  }
+
+  /// Registra en segundo plano que la cuenta [id] usó la app (ver [Repositorio.registrarAcceso]).
+  ///
+  /// Recuerda en memoria la última anotación de cada cuenta para no escribir
+  /// en la base en cada petición. Un fallo aquí nunca rompe la petición.
+  void anotarAcceso(String id) {
+    final ahora = DateTime.now();
+    final anterior = _accesos[id];
+    if (anterior != null && ahora.difference(anterior) < const Duration(hours: 1)) {
+      return;
+    }
+    _accesos[id] = ahora;
+    unawaited(repositorio.registrarAcceso(id).catchError((Object _) {}));
   }
 
   /// Cuenta cuyo rol está en [roles]; si no, 403 con [mensaje].

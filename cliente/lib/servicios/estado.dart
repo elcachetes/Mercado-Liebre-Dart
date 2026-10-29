@@ -4,6 +4,36 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../modelos/modelos.dart';
 import 'api.dart';
 
+/// Cómo se muestra la app a la cuenta activa: con su rol real o como otro rol.
+///
+/// Sirve para revisar ajustes sin cerrar sesión. Solo cambia la interfaz
+/// (menús y botones); la API sigue autorizando con el rol real.
+enum VistaCuenta {
+  /// El rol real de la cuenta.
+  propia('Volver a mi vista', Icons.undo),
+
+  /// Como un vendedor: menú "Mi negocio" y registro de puesto en el mapa.
+  vendedor('Ver como vendedor', Icons.storefront_outlined),
+
+  /// Como un comprador: sin menús de negocio, moderación ni administración.
+  comprador('Ver como usuario', Icons.person_search_outlined);
+
+  const VistaCuenta(this.etiqueta, this.icono);
+
+  /// Texto del menú de la cuenta.
+  final String etiqueta;
+
+  /// Icono del menú de la cuenta.
+  final IconData icono;
+
+  /// Rol que simula; null en [propia].
+  String? get rol => switch (this) {
+        propia => null,
+        vendedor => 'vendedor',
+        comprador => 'comprador',
+      };
+}
+
 /// Sesión de la app y acceso a la API.
 ///
 /// Guarda el token en el dispositivo. Al abrir, intenta recuperar la
@@ -32,6 +62,39 @@ class EstadoApp extends ChangeNotifier {
 
   /// Verdadero mientras se restaura la sesión al abrir.
   bool cargando = true;
+
+  /// Vista previa elegida en el menú de la cuenta. Vuelve a [VistaCuenta.propia] al entrar o salir.
+  VistaCuenta vista = VistaCuenta.propia;
+
+  /// [usuario] con el rol de [vista]. Menús y botones que dependen del rol lo usan.
+  Usuario? get usuarioVisible {
+    final cuenta = usuario;
+    final rol = vista.rol;
+    return cuenta == null || rol == null ? cuenta : cuenta.conRol(rol);
+  }
+
+  /// Vistas previas que puede elegir la cuenta activa (sin contar [VistaCuenta.propia]).
+  ///
+  /// Admin → vendedor y usuario; vendedor → usuario; los demás, ninguna.
+  List<VistaCuenta> get vistasDisponibles {
+    final cuenta = usuario;
+    if (cuenta == null) {
+      return const [];
+    }
+    if (cuenta.esAdmin) {
+      return const [VistaCuenta.vendedor, VistaCuenta.comprador];
+    }
+    return cuenta.esVendedor ? const [VistaCuenta.comprador] : const [];
+  }
+
+  /// Cambia la vista previa. Ignora vistas que la cuenta no puede usar.
+  void cambiarVista(VistaCuenta nueva) {
+    if (nueva != VistaCuenta.propia && !vistasDisponibles.contains(nueva)) {
+      return;
+    }
+    vista = nueva;
+    notifyListeners();
+  }
 
   /// Ids de los vendedores favoritos de la cuenta activa.
   Set<String> get favoritos => Set.unmodifiable(_favoritos);
@@ -166,6 +229,7 @@ class EstadoApp extends ChangeNotifier {
     usuario = null;
     api.token = null;
     _favoritos = {};
+    vista = VistaCuenta.propia;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_claveToken);
@@ -188,6 +252,7 @@ class EstadoApp extends ChangeNotifier {
   Future<void> _guardar(String token, Usuario cuenta) async {
     api.token = token;
     usuario = cuenta;
+    vista = VistaCuenta.propia;
     await _cargarFavoritos();
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../servicios/api.dart';
 import '../servicios/estado.dart';
 import '../tema/iconos_menu.dart';
 import '../tema/tema_liebre.dart';
@@ -16,8 +17,10 @@ import 'sesion_dialogo.dart';
 
 /// Marco con la barra superior roja, que lleva toda la navegación.
 ///
-/// Desde 840 px de ancho agrega a la izquierda la barra de publicidad
-/// (dos carruseles; tocar un anuncio abre la ficha del negocio).
+/// Desde [anchoBarraLateral] agrega a la izquierda la barra de publicidad
+/// (dos carruseles; tocar un anuncio abre la ficha del negocio). Más angosto,
+/// los anuncios van entre los resultados de búsqueda ([AnunciosEnLista]).
+/// Con una vista previa activa ([EstadoApp.vista]) muestra [_BandaVista] arriba.
 /// Cada pestaña se construye la primera vez que se visita y después se
 /// conserva (texto buscado, zoom del mapa, posición de scroll).
 class MarcoPrincipal extends StatefulWidget {
@@ -95,7 +98,7 @@ class _MarcoPrincipalState extends State<MarcoPrincipal> {
   @override
   Widget build(BuildContext context) {
     final ancho = MediaQuery.sizeOf(context).width;
-    final amplio = ancho >= 840;
+    final amplio = ancho >= anchoBarraLateral;
     final compacto = ancho < 600;
     final oscuro = Theme.of(context).brightness == Brightness.dark;
     final destinos = _destinos;
@@ -126,19 +129,8 @@ class _MarcoPrincipalState extends State<MarcoPrincipal> {
         actions: [
           // En el celular la invitación a instalar va en Inicio para no saturar la barra.
           if (!compacto) BotonInstalar(conTexto: amplio),
-          if (amplio)
-            TextButton.icon(
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
-              onPressed: () => mostrarReporte(context, widget.estado),
-              icon: const Icon(Icons.feedback_outlined),
-              label: const Text('Reportar'),
-            )
-          else
-            IconButton(
-              tooltip: 'Reportar falla, queja o sugerencia',
-              onPressed: () => mostrarReporte(context, widget.estado),
-              icon: const Icon(Icons.feedback_outlined),
-            ),
+          // "Reportar falla" vive en el menú de la cuenta (y en Inicio para invitados).
+          _BotonFavoritos(estado: widget.estado, conTexto: amplio),
           IconButton(
             tooltip: oscuro ? 'Modo claro' : 'Modo oscuro',
             onPressed: () => widget.estado.alternarTema(Theme.of(context).brightness),
@@ -148,7 +140,7 @@ class _MarcoPrincipalState extends State<MarcoPrincipal> {
           SizedBox(width: compacto ? Espacio.xs : Espacio.s),
         ],
       ),
-      body: amplio
+      body: _conBandaVista(amplio
           ? Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -160,7 +152,114 @@ class _MarcoPrincipalState extends State<MarcoPrincipal> {
                 Expanded(child: cuerpo),
               ],
             )
-          : cuerpo,
+          : cuerpo),
+    );
+  }
+
+  /// Pone [_BandaVista] sobre [contenido] mientras hay una vista previa activa.
+  Widget _conBandaVista(Widget contenido) {
+    if (widget.estado.vista == VistaCuenta.propia) {
+      return contenido;
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [_BandaVista(estado: widget.estado), Expanded(child: contenido)],
+    );
+  }
+}
+
+/// Abre "Favoritos". A un invitado primero le pide entrar.
+class _BotonFavoritos extends StatelessWidget {
+  const _BotonFavoritos({required this.estado, required this.conTexto});
+
+  final EstadoApp estado;
+
+  /// Verdadero en pantallas amplias: icono y etiqueta; si no, solo icono.
+  final bool conTexto;
+
+  Future<void> _abrir(BuildContext context) async {
+    if (estado.usuario == null) {
+      await mostrarDialogoSesion(context, estado);
+      if (estado.usuario == null || !context.mounted) {
+        return;
+      }
+    }
+    await abrirSeccionCuenta(context, estado, SeccionCuenta.favoritos);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final icono = Icon(estado.favoritos.isEmpty ? Icons.favorite_outline : Icons.favorite);
+    if (conTexto) {
+      return TextButton.icon(
+        style: TextButton.styleFrom(foregroundColor: Colors.white),
+        onPressed: () => _abrir(context),
+        icon: icono,
+        label: const Text('Favoritos'),
+      );
+    }
+    return IconButton(tooltip: 'Favoritos', onPressed: () => _abrir(context), icon: icono);
+  }
+}
+
+/// Aviso fijo de la vista previa: qué rol se está simulando y cómo volver.
+///
+/// En la vista de usuario de un vendedor ofrece además abrir su propia ficha
+/// tal como la ven los compradores.
+class _BandaVista extends StatelessWidget {
+  const _BandaVista({required this.estado});
+
+  final EstadoApp estado;
+
+  Future<void> _verMiTienda(BuildContext context) async {
+    try {
+      final negocio = await estado.api.miNegocio();
+      if (!context.mounted) {
+        return;
+      }
+      if (negocio == null) {
+        mostrarAviso(context, 'Tu cuenta todavía no tiene un perfil de negocio.');
+        return;
+      }
+      await abrirVendedor(context, estado, negocio);
+    } on ErrorApi catch (error) {
+      if (context.mounted) {
+        mostrarAviso(context, error.mensaje);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final esquema = Theme.of(context).colorScheme;
+    final comoUsuario = estado.vista == VistaCuenta.comprador;
+    final estilo = TextButton.styleFrom(foregroundColor: esquema.onTertiaryContainer);
+    return Material(
+      color: esquema.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(Espacio.l, Espacio.xs, Espacio.s, Espacio.xs),
+        child: Row(
+          children: [
+            Icon(estado.vista.icono, size: 20, color: esquema.onTertiaryContainer),
+            const SizedBox(width: Espacio.s),
+            Expanded(
+              child: Text(
+                comoUsuario
+                    ? 'Vista de usuario: así ven la app los compradores.'
+                    : 'Vista de vendedor: así ven la app los vendedores.',
+                style: TextStyle(color: esquema.onTertiaryContainer),
+              ),
+            ),
+            if (comoUsuario && (estado.usuario?.esVendedor ?? false))
+              TextButton(style: estilo, onPressed: () => _verMiTienda(context), child: const Text('Mi tienda')),
+            TextButton(
+              style: estilo,
+              onPressed: () => estado.cambiarVista(VistaCuenta.propia),
+              child: const Text('Salir'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -257,6 +356,10 @@ class _BotonCuenta extends StatelessWidget {
   const _BotonCuenta({required this.estado, required this.compacto});
 
   static const String _salir = 'salir';
+  static const String _reportar = 'reportar';
+
+  /// Prefijo de las opciones que cambian la vista previa (`vista:comprador`).
+  static const String _prefijoVista = 'vista:';
 
   final EstadoApp estado;
   final bool compacto;
@@ -266,6 +369,14 @@ class _BotonCuenta extends StatelessWidget {
       if (await confirmar(context, titulo: 'Cerrar sesión', mensaje: '¿Quieres salir de tu cuenta?', accion: 'Salir')) {
         await estado.salir();
       }
+      return;
+    }
+    if (opcion == _reportar) {
+      await mostrarReporte(context, estado);
+      return;
+    }
+    if (opcion.startsWith(_prefijoVista)) {
+      estado.cambiarVista(VistaCuenta.values.byName(opcion.substring(_prefijoVista.length)));
       return;
     }
     final seccion = SeccionCuenta.values.byName(opcion);
@@ -293,6 +404,12 @@ class _BotonCuenta extends StatelessWidget {
       );
     }
     final esquema = Theme.of(context).colorScheme;
+    // Las secciones siguen la vista previa; las opciones de vista, el rol real.
+    final visible = estado.usuarioVisible ?? usuario;
+    final vistas = [
+      if (estado.vista != VistaCuenta.propia) VistaCuenta.propia,
+      ...estado.vistasDisponibles.where((vista) => vista != estado.vista),
+    ];
     return PopupMenuButton<String>(
       tooltip: 'Mi cuenta',
       position: PopupMenuPosition.under,
@@ -310,12 +427,28 @@ class _BotonCuenta extends StatelessWidget {
           ),
         ),
         const PopupMenuDivider(),
-        for (final seccion in SeccionCuenta.para(usuario))
+        for (final seccion in SeccionCuenta.para(visible))
           PopupMenuItem<String>(
             value: seccion.name,
             child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(seccion.icono), title: Text(seccion.titulo)),
           ),
+        if (vistas.isNotEmpty) ...[
+          const PopupMenuDivider(),
+          for (final vista in vistas)
+            PopupMenuItem<String>(
+              value: '$_prefijoVista${vista.name}',
+              child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(vista.icono), title: Text(vista.etiqueta)),
+            ),
+        ],
         const PopupMenuDivider(),
+        const PopupMenuItem<String>(
+          value: _reportar,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.feedback_outlined),
+            title: Text('Reportar falla'),
+          ),
+        ),
         const PopupMenuItem<String>(
           value: _salir,
           child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(Icons.logout), title: Text('Cerrar sesión')),
