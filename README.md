@@ -7,22 +7,28 @@ contacto desde la misma app.
 
 - **Sin cuenta:** ver vendedores abiertos, destacados, más vendidos, buscar y
   usar el mapa.
-- **Con cuenta:** calificar productos, guardar favoritos y, si se quiere,
-  registrar teléfono, número de control y carrera para recibir promociones.
+- **Con cuenta:** calificar productos, guardar favoritos, poner foto de perfil
+  y, si se quiere, registrar teléfono, número de control y carrera para recibir
+  promociones. Desde el menú de la cuenta se cambia entre **modo usuario y modo
+  vendedor**: al volver a usuario, el negocio queda en pausa (oculto y cerrado)
+  sin perder nada.
   El correo debe ser real: se verifica con un enlace y sirve para recuperar la
   contraseña ("¿Olvidaste tu contraseña?"). Cualquier cuenta puede eliminarse
   a sí misma con todos sus datos (salvo un administrador).
 - **Buscar y explorar:** por texto o por categoría, solo lo abierto o todo, y
   ordenado por nombre, estrellas o número de reseñas.
-- **Vendedor:** abrir/cerrar el puesto, catálogo con fotos (de la galería o
-  tomadas con la cámara en ese momento), borrar productos, horario por días,
-  contacto, punto en el mapa y eliminar su cuenta con todo su negocio.
+- **Vendedor:** abrir/cerrar el puesto, logo y foto de la tienda, catálogo con
+  fotos (de la galería o tomadas con la cámara en ese momento), borrar productos,
+  horario por días, contacto, punto en el mapa, compartir la tienda o un producto
+  por Facebook o Telegram y eliminar su cuenta con todo su negocio. Puede
+  calificar otros negocios, pero su reseña se publica solo cuando la aprueba la
+  administración (evita opiniones falsas de la competencia).
 - **Publicidad:** dos carruseles de tres imágenes en la barra lateral; cada
   imagen dura lo mismo y al tocarla abre la ficha del negocio anunciado.
 - **Moderador:** bloquear cuentas.
 - **Administrador:** panel con pestañas: resumen, usuarios (crear, editar,
   bloquear, eliminar), negocios y sus productos, mapa, publicidad, avisos,
-  reseñas, restablecimientos de contraseña, base de datos (conexión y
+  reseñas (aprobar las de vendedores, borrar), restablecimientos de contraseña, base de datos (conexión y
   explorador de registros de solo lectura) y apariencia.
 - **PWA:** la versión web se instala como app (botón "Instalar app"; en
   iPhone explica cómo hacerlo desde Safari).

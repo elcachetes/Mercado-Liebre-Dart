@@ -97,6 +97,23 @@ class ClienteApi {
     }));
   }
 
+  /// Cambia la cuenta a modo `comprador` o `vendedor` y devuelve la cuenta actualizada.
+  ///
+  /// La primera vez que pasa a vendedor, [negocio] debe traer `nombreNegocio`
+  /// y `categoria` (y opcionalmente `subtipo` y `descripcion`). Al volver a
+  /// comprador el negocio queda en pausa, sin borrarse.
+  Future<Usuario> cambiarModo(String modo, {Map<String, dynamic> negocio = const {}}) async {
+    return Usuario.fromJson(await _objeto('POST', '/api/yo/modo', {...negocio, 'modo': modo}));
+  }
+
+  /// Sube (o reemplaza) la foto de perfil. Devuelve la cuenta actualizada.
+  Future<Usuario> subirFotoPerfil(String nombre, String datosBase64) async {
+    return Usuario.fromJson(await _objeto('POST', '/api/yo/foto', {'nombre': nombre, 'datos': datosBase64}));
+  }
+
+  /// Quita la foto de perfil. Devuelve la cuenta actualizada.
+  Future<Usuario> quitarFotoPerfil() async => Usuario.fromJson(await _objeto('DELETE', '/api/yo/foto'));
+
   /// Borra la cuenta de la sesión con su negocio, productos, fotos y reseñas.
   ///
   /// El servidor exige la [password] actual; un administrador no puede borrarse.
@@ -135,6 +152,12 @@ class ClienteApi {
       rethrow;
     }
   }
+
+  /// Un negocio público por id (enlaces compartidos). 404 si no existe o está en pausa.
+  Future<Vendedor> vendedor(String id) async => Vendedor.fromJson(await _objeto('GET', '/api/vendedores/$id'));
+
+  /// Un producto por id (enlaces compartidos). 404 si no existe o su negocio está en pausa.
+  Future<Producto> producto(String id) async => Producto.fromJson(await _objeto('GET', '/api/productos/$id'));
 
   /// Productos de un negocio.
   Future<List<Producto>> productosDe(String sellerId) async {
@@ -182,12 +205,15 @@ class ClienteApi {
   }
 
   /// Publica estrellas y un comentario.
-  Future<void> calificar(String productoId, int estrellas, String comentario) async {
-    await _objeto('POST', '/api/calificaciones', {
+  ///
+  /// Devuelve true si la reseña quedó pendiente de aprobación (la escribió un vendedor).
+  Future<bool> calificar(String productoId, int estrellas, String comentario) async {
+    final respuesta = await _objeto('POST', '/api/calificaciones', {
       'productoId': productoId,
       'estrellas': estrellas,
       'comentario': comentario,
     });
+    return respuesta['pendiente'] == true;
   }
 
   /// Últimas reseñas de un producto.
@@ -241,6 +267,18 @@ class ClienteApi {
   /// Quita la foto de un producto propio.
   Future<void> quitarFotoProducto(String id) async {
     await _objeto('DELETE', '/api/productos/$id/foto');
+  }
+
+  /// Sube (o reemplaza) el `logo` o la `portada` (foto de la tienda). Devuelve el negocio actualizado.
+  Future<Vendedor> subirImagenNegocio(String tipo, String nombre, String datosBase64) async {
+    return Vendedor.fromJson(
+      await _objeto('POST', '/api/vendedores/imagen/$tipo', {'nombre': nombre, 'datos': datosBase64}),
+    );
+  }
+
+  /// Quita el `logo` o la `portada` del negocio propio. Devuelve el negocio actualizado.
+  Future<Vendedor> quitarImagenNegocio(String tipo) async {
+    return Vendedor.fromJson(await _objeto('DELETE', '/api/vendedores/imagen/$tipo'));
   }
 
   /// Guarda el horario de atención.
@@ -392,6 +430,11 @@ class ClienteApi {
   /// Últimas reseñas de toda la app.
   Future<List<ResenaAdmin>> resenasAdmin() async {
     return (await _lista('/api/admin/calificaciones')).map(ResenaAdmin.fromJson).toList();
+  }
+
+  /// Aprueba una reseña pendiente (de un vendedor): se vuelve pública.
+  Future<void> aprobarResena(String productoId, String autorId) async {
+    await _objeto('POST', '/api/admin/calificaciones/$productoId/$autorId/aprobar');
   }
 
   /// Borra una reseña.

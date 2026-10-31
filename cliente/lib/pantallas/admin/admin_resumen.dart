@@ -29,6 +29,7 @@ class AdminResumen extends StatelessWidget {
 
   /// Lo que conviene revisar: (clave, etiqueta, icono).
   static const List<(String, String, IconData)> _pendientes = [
+    ('resenasPendientes', 'Reseñas de vendedores por aprobar', Icons.rate_review_outlined),
     ('sinVerificar', 'Cuentas sin verificar el correo', Icons.mark_email_unread_outlined),
     ('bloqueados', 'Cuentas bloqueadas', Icons.block),
     ('sinPunto', 'Negocios sin punto en el mapa', Icons.wrong_location_outlined),

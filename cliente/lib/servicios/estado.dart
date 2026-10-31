@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart' show Uint8List;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -202,6 +205,21 @@ class EstadoApp extends ChangeNotifier {
   /// Guarda teléfono, número de control y carrera, y refresca [usuario].
   Future<void> actualizarPerfil({String? telefono, String? numeroControl, String? carrera}) async {
     usuario = await api.actualizarPerfil(telefono: telefono, numeroControl: numeroControl, carrera: carrera);
+    notifyListeners();
+  }
+
+  /// Cambia la cuenta a modo `comprador` o `vendedor` (ver [ClienteApi.cambiarModo]).
+  ///
+  /// Quita cualquier vista previa: el rol real acaba de cambiar.
+  Future<void> cambiarModo(String modo, {Map<String, dynamic> negocio = const {}}) async {
+    usuario = await api.cambiarModo(modo, negocio: negocio);
+    vista = VistaCuenta.propia;
+    notifyListeners();
+  }
+
+  /// Sube [jpeg] como foto de perfil, o la quita si es null, y refresca [usuario].
+  Future<void> cambiarFotoPerfil(Uint8List? jpeg) async {
+    usuario = jpeg == null ? await api.quitarFotoPerfil() : await api.subirFotoPerfil('perfil.jpg', base64Encode(jpeg));
     notifyListeners();
   }
 

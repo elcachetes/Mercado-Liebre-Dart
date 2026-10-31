@@ -6,6 +6,7 @@ import '../servicios/api.dart';
 import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
+import '../widgets/compartir.dart';
 import '../widgets/tarjeta_producto.dart';
 import '../widgets/tarjeta_vendedor.dart';
 import 'detalle_producto.dart';
@@ -18,7 +19,37 @@ Future<void> abrirVendedor(BuildContext context, EstadoApp estado, Vendedor vend
   );
 }
 
-/// Ficha de un negocio: estado, ubicación, contacto y catálogo.
+/// Abre la ficha que pide un enlace compartido ([enlaceVendedor] o [enlaceProducto]).
+///
+/// `?vendedor=<id>` abre el negocio; `?producto=<id>` abre su negocio y encima
+/// la hoja del producto. Si ya no existe (o está en pausa) lo avisa.
+/// Devuelve false si [uri] no trae ningún enlace compartido.
+Future<bool> abrirEnlaceCompartido(BuildContext context, EstadoApp estado, Uri uri) async {
+  final idVendedor = uri.queryParameters['vendedor'] ?? '';
+  final idProducto = uri.queryParameters['producto'] ?? '';
+  if (idVendedor.isEmpty && idProducto.isEmpty) {
+    return false;
+  }
+  try {
+    final producto = idProducto.isEmpty ? null : await estado.api.producto(idProducto);
+    final vendedor = await estado.api.vendedor(producto?.sellerId ?? idVendedor);
+    if (!context.mounted) {
+      return true;
+    }
+    // Sin await: la ficha queda abierta y la hoja del producto se pone encima.
+    abrirVendedor(context, estado, vendedor);
+    if (producto != null) {
+      abrirProducto(context, estado, producto);
+    }
+  } on ErrorApi catch (error) {
+    if (context.mounted) {
+      mostrarAviso(context, error.mensaje);
+    }
+  }
+  return true;
+}
+
+/// Ficha de un negocio: foto de la tienda, logo, estado, ubicación, contacto y catálogo.
 class DetalleVendedorPantalla extends StatefulWidget {
   /// [vendedor] ya viene de una lista; los productos se piden aquí.
   const DetalleVendedorPantalla({super.key, required this.estado, required this.vendedor});
@@ -65,6 +96,11 @@ class _DetalleVendedorPantallaState extends State<DetalleVendedorPantalla> {
       appBar: AppBar(
         title: Text(vendedor.nombreNegocio),
         actions: [
+          IconButton(
+            tooltip: 'Compartir tienda',
+            onPressed: () => compartirVendedor(context, vendedor),
+            icon: const Icon(Icons.share_outlined),
+          ),
           ListenableBuilder(
             listenable: widget.estado,
             builder: (context, _) {
@@ -87,13 +123,16 @@ class _DetalleVendedorPantallaState extends State<DetalleVendedorPantalla> {
           child: ListView(
             padding: const EdgeInsets.all(Espacio.l),
             children: [
+              if ((vendedor.portadaUrl ?? '').isNotEmpty) ...[
+                AspectRatio(
+                  aspectRatio: 16 / 7,
+                  child: ImagenRed(vendedor.portadaUrl!, radio: 16, ancho: double.infinity),
+                ),
+                const SizedBox(height: Espacio.l),
+              ],
               Row(
                 children: [
-                  CircleAvatar(
-                    radius: 28,
-                    backgroundColor: ColoresLiebre.primario,
-                    child: Icon(iconoCategoria(vendedor.categoria), color: Colors.white, size: 28),
-                  ),
+                  LogoNegocio(vendedor: vendedor, radio: 28),
                   const SizedBox(width: Espacio.l),
                   Expanded(
                     child: Column(

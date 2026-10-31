@@ -88,6 +88,32 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
     }
   }
 
+  /// Guarda en medios la imagen base64 de `cuerpo['datos']` y devuelve su `/medios/...`.
+  Future<String> guardarImagen(Map<String, dynamic> cuerpo) async {
+    final datos = _texto(cuerpo, 'datos');
+    if (datos.isEmpty) {
+      throw ErrorApi(400, 'Falta la imagen.');
+    }
+    try {
+      return await medios.guardar(cuerpo['nombre']?.toString() ?? 'foto.jpg', datos);
+    } on FormatException catch (error) {
+      throw ErrorApi(400, error.message);
+    }
+  }
+
+  /// Ejecuta [cambio] con la imagen recién guardada en [url] y borra la anterior
+  /// que devuelve. Si [cambio] falla, borra [url] para no dejar archivos huérfanos.
+  Future<T> reemplazarImagen<T>(String url, Future<(String?, T)> Function() cambio) async {
+    try {
+      final (anterior, resultado) = await cambio();
+      await medios.borrar(anterior);
+      return resultado;
+    } catch (_) {
+      await medios.borrar(url);
+      rethrow;
+    }
+  }
+
   // ── Salud ─────────────────────────────────────────────────────────────
   router.get('/salud', (Request request) => _json(200, {'estado': 'ok'}));
 
@@ -146,6 +172,28 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
   router.patch('/api/yo', (Request request) async {
     final usuario = await sesion.usuario(request);
     return _json(200, await repositorio.actualizarPerfil(usuario['id'] as String, await _cuerpo(request)));
+  });
+
+  // Cambia entre modo usuario (comprador) y modo vendedor. Ver Repositorio.cambiarModo.
+  router.post('/api/yo/modo', (Request request) async {
+    final usuario = await sesion.usuario(request);
+    return _json(200, await repositorio.cambiarModo(usuario['id'] as String, await _cuerpo(request)));
+  });
+
+  router.post('/api/yo/foto', (Request request) async {
+    final usuario = await sesion.usuario(request);
+    final url = await guardarImagen(await _cuerpo(request));
+    return _json(
+      200,
+      await reemplazarImagen(url, () => repositorio.cambiarFotoPerfil(usuario['id'] as String, url)),
+    );
+  });
+
+  router.delete('/api/yo/foto', (Request request) async {
+    final usuario = await sesion.usuario(request);
+    final (anterior, cuenta) = await repositorio.cambiarFotoPerfil(usuario['id'] as String, null);
+    await medios.borrar(anterior);
+    return _json(200, cuenta);
   });
 
   // Borra la cuenta de la sesión con todo lo suyo. Pide la contraseña para
@@ -246,6 +294,35 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
     return _json(200, vendedor);
   });
 
+  // Va después de /mio y /destacados: shelf_router prueba las rutas en orden.
+  router.get('/api/vendedores/<id>', (Request request, String id) async {
+    final vendedor = await repositorio.vendedorPublico(id);
+    if (vendedor == null) {
+      throw ErrorApi(404, 'Ese negocio ya no está disponible.');
+    }
+    return _json(200, vendedor);
+  });
+
+  // <tipo> es `logo` o `portada` (Repositorio.columnasImagenNegocio).
+  router.post('/api/vendedores/imagen/<tipo>', (Request request, String tipo) async {
+    final usuario = await sesion.vendedor(request);
+    if (!Repositorio.columnasImagenNegocio.containsKey(tipo)) {
+      throw ErrorApi(404, 'Esa imagen del negocio no existe.');
+    }
+    final url = await guardarImagen(await _cuerpo(request));
+    return _json(
+      200,
+      await reemplazarImagen(url, () => repositorio.cambiarImagenNegocio(usuario['id'] as String, tipo, url)),
+    );
+  });
+
+  router.delete('/api/vendedores/imagen/<tipo>', (Request request, String tipo) async {
+    final usuario = await sesion.vendedor(request);
+    final (anterior, vendedor) = await repositorio.cambiarImagenNegocio(usuario['id'] as String, tipo, null);
+    await medios.borrar(anterior);
+    return _json(200, vendedor);
+  });
+
   router.post('/api/vendedores/punto', (Request request) async {
     final usuario = await sesion.vendedor(request);
     final codigo = _texto(await _cuerpo(request), 'edificio').toUpperCase();
@@ -302,6 +379,15 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
     return _json(200, await repositorio.masVendidos());
   });
 
+  // Va después de /mas-vendidos: shelf_router prueba las rutas en orden.
+  router.get('/api/productos/<id>', (Request request, String id) async {
+    final producto = await repositorio.productoPublico(id);
+    if (producto == null) {
+      throw ErrorApi(404, 'Ese producto ya no está disponible.');
+    }
+    return _json(200, producto);
+  });
+
   router.post('/api/productos', (Request request) async {
     final usuario = await sesion.vendedor(request);
     final cuerpo = await _cuerpo(request);
@@ -337,24 +423,12 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
 
   router.post('/api/productos/<id>/foto', (Request request, String id) async {
     final usuario = await sesion.vendedor(request);
-    final cuerpo = await _cuerpo(request);
-    final datos = _texto(cuerpo, 'datos');
-    if (datos.isEmpty) {
-      throw ErrorApi(400, 'Falta la imagen.');
-    }
-    final String url;
-    try {
-      url = await medios.guardar(cuerpo['nombre']?.toString() ?? 'foto.jpg', datos);
-    } on FormatException catch (error) {
-      throw ErrorApi(400, error.message);
-    }
-    try {
+    final url = await guardarImagen(await _cuerpo(request));
+    // Si el producto no era suyo, reemplazarImagen borra el archivo recién guardado.
+    await reemplazarImagen(url, () async {
       final anterior = await repositorio.cambiarFotoProducto(userId: usuario['id'] as String, productId: id, url: url);
-      await medios.borrar(anterior);
-    } catch (_) {
-      await medios.borrar(url); // No dejar archivos huérfanos si el producto no era suyo.
-      rethrow;
-    }
+      return (anterior, null);
+    });
     return _json(200, {'fotoUrl': url});
   });
 
@@ -406,7 +480,7 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
     final usuario = await sesion.usuario(request);
     final cuerpo = await _cuerpo(request);
     final estrellas = cuerpo['estrellas'];
-    await repositorio.calificar(
+    final pendiente = await repositorio.calificar(
       buyerId: usuario['id'] as String,
       rol: usuario['rol'] as String,
       correoVerificado: usuario['correoVerificado'] == true,
@@ -414,7 +488,7 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
       estrellas: estrellas is int ? estrellas : int.tryParse('$estrellas') ?? 0,
       comentario: cuerpo['comentario']?.toString(),
     );
-    return _json(200, {'ok': true});
+    return _json(200, {'ok': true, 'pendiente': pendiente});
   });
 
   // ── Reportes de fallas, quejas y sugerencias ──────────────────────────
@@ -604,6 +678,13 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
     return _json(200, await repositorio.calificacionesRecientes());
   });
 
+  router.post('/api/admin/calificaciones/<producto>/<autor>/aprobar',
+      (Request request, String producto, String autor) async {
+    await sesion.admin(request);
+    await repositorio.aprobarCalificacion(producto, autor);
+    return _json(200, {'ok': true});
+  });
+
   router.delete('/api/admin/calificaciones/<producto>/<autor>', (Request request, String producto, String autor) async {
     await sesion.admin(request);
     await repositorio.eliminarCalificacion(producto, autor);
@@ -655,17 +736,7 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
 
   router.post('/api/admin/medios', (Request request) async {
     await sesion.admin(request);
-    final cuerpo = await _cuerpo(request);
-    final datos = _texto(cuerpo, 'datos');
-    if (datos.isEmpty) {
-      throw ErrorApi(400, 'Falta la imagen.');
-    }
-    try {
-      final nombre = cuerpo['nombre']?.toString() ?? 'imagen.jpg';
-      return _json(201, {'url': await medios.guardar(nombre, datos)});
-    } on FormatException catch (error) {
-      throw ErrorApi(400, error.message);
-    }
+    return _json(201, {'url': await guardarImagen(await _cuerpo(request))});
   });
 
   router.get('/medios/<archivo>', (Request request, String archivo) async {

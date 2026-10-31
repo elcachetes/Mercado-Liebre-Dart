@@ -45,20 +45,50 @@ class Repositorio {
     LEFT JOIN product_ratings_summary s ON s.product_id = p.id
   ''';
 
+  /// Promedio y total de reseñas aprobadas de cada negocio (alias `r`).
+  static const String _promediosNegocio = '''
+    LEFT JOIN (
+      SELECT p.seller_id, AVG(ra.estrellas)::float8 AS promedio, COUNT(*)::int AS total
+      FROM ratings ra
+      JOIN products p ON p.id = ra.product_id
+      WHERE ra.aprobada
+      GROUP BY p.seller_id
+    ) r ON r.seller_id = s.id
+  ''';
+
   /// Columnas del vendedor más el promedio y total de reseñas de todos sus
   /// productos. Se completa con WHERE/ORDER usando el alias `s`.
+  ///
+  /// Solo negocios públicos: si su dueño cambió a modo comprador
+  /// ([cambiarModo]) el negocio queda en pausa y no aparece.
   static const String _selectVendedores = '''
     SELECT s.*,
            COALESCE(r.promedio, 0) AS promedio_estrellas,
            COALESCE(r.total, 0) AS total_resenas
     FROM sellers s
-    LEFT JOIN (
-      SELECT p.seller_id, AVG(ra.estrellas)::float8 AS promedio, COUNT(*)::int AS total
-      FROM ratings ra
-      JOIN products p ON p.id = ra.product_id
-      GROUP BY p.seller_id
-    ) r ON r.seller_id = s.id
+    JOIN users dueno ON dueno.id = s.user_id AND dueno.rol <> 'comprador'
+    $_promediosNegocio
   ''';
+
+  /// Igual que [_selectVendedores] pero incluye los negocios en pausa.
+  /// Para el administrador y para el dueño.
+  static const String _selectTodosLosVendedores = '''
+    SELECT s.*,
+           COALESCE(r.promedio, 0) AS promedio_estrellas,
+           COALESCE(r.total, 0) AS total_resenas
+    FROM sellers s
+    $_promediosNegocio
+  ''';
+
+  /// Deja en [_selectProductos] solo los productos de negocios públicos.
+  static const String _soloNegociosPublicos = '''
+    JOIN sellers sv ON sv.id = p.seller_id
+    JOIN users dueno ON dueno.id = sv.user_id AND dueno.rol <> 'comprador'
+  ''';
+
+  /// Columna de cada imagen del negocio que sube el vendedor. El tipo que
+  /// manda el cliente solo se busca aquí: el SQL usa estos nombres fijos.
+  static const Map<String, String> columnasImagenNegocio = {'logo': 'logo_url', 'portada': 'portada_url'};
 
   static const String _sinNegocio = 'No tienes un perfil de negocio.';
   static const String _productoAjeno = 'No se encontró ese producto en tu negocio.';
@@ -205,27 +235,7 @@ class Repositorio {
         );
         final usuario = insertado.first.toColumnMap();
         if (rol == 'vendedor') {
-          final negocio = _texto(datos['nombreNegocio']);
-          final categoria = _texto(datos['categoria']);
-          if (negocio.isEmpty) {
-            throw ErrorApi(400, 'Un vendedor necesita el nombre del negocio.');
-          }
-          if (!const {'producto', 'comida', 'servicio'}.contains(categoria)) {
-            throw ErrorApi(400, 'La categoría debe ser producto, comida o servicio.');
-          }
-          await conexion.execute(
-            Sql.named('''
-              INSERT INTO sellers (user_id, nombre_negocio, categoria, subtipo, descripcion)
-              VALUES (@user, @negocio, @categoria::seller_category, @subtipo, @descripcion)
-            '''),
-            parameters: {
-              'user': usuario['id'],
-              'negocio': negocio,
-              'categoria': categoria,
-              'subtipo': _nulo(_texto(datos['subtipo'])),
-              'descripcion': _nulo(_texto(datos['descripcion'])),
-            },
-          );
+          await _insertarNegocio(conexion, usuario['id'].toString(), datos);
         }
         return _usuario(usuario);
       });
@@ -236,6 +246,127 @@ class Repositorio {
       }
       rethrow;
     }
+  }
+
+  /// Crea el negocio de [userId] con `nombreNegocio`, `categoria`, `subtipo` y `descripcion` de [datos].
+  Future<void> _insertarNegocio(Session conexion, String userId, Map<String, dynamic> datos) async {
+    final negocio = _texto(datos['nombreNegocio']);
+    final categoria = _texto(datos['categoria']);
+    if (negocio.isEmpty || negocio.length > 120) {
+      throw ErrorApi(400, 'Un vendedor necesita el nombre del negocio (hasta 120 caracteres).');
+    }
+    if (!const {'producto', 'comida', 'servicio'}.contains(categoria)) {
+      throw ErrorApi(400, 'La categoría debe ser producto, comida o servicio.');
+    }
+    if (_texto(datos['subtipo']).length > 80 || _texto(datos['descripcion']).length > 500) {
+      throw ErrorApi(400, 'La especialidad admite 80 caracteres y la descripción 500.');
+    }
+    await conexion.execute(
+      Sql.named('''
+        INSERT INTO sellers (user_id, nombre_negocio, categoria, subtipo, descripcion)
+        VALUES (@user, @negocio, @categoria::seller_category, @subtipo, @descripcion)
+      '''),
+      parameters: {
+        'user': userId,
+        'negocio': negocio,
+        'categoria': categoria,
+        'subtipo': _nulo(_texto(datos['subtipo'])),
+        'descripcion': _nulo(_texto(datos['descripcion'])),
+      },
+    );
+  }
+
+  /// Cambia la cuenta entre modo `comprador` y modo `vendedor` (`datos['modo']`).
+  ///
+  /// Solo para cuentas de comprador o vendedor; admin y moderador ya tienen
+  /// la vista previa. Al pasar a vendedor por primera vez se crea el negocio
+  /// con `nombreNegocio` y `categoria` (obligatorios), `subtipo` y `descripcion`.
+  /// Al volver a comprador el negocio no se borra: queda en pausa (cerrado y
+  /// fuera de las listas públicas) con su catálogo, horario e imágenes, y
+  /// reaparece tal cual al regresar a vendedor. Devuelve la cuenta actualizada.
+  Future<Map<String, dynamic>> cambiarModo(String userId, Map<String, dynamic> datos) {
+    final modo = _texto(datos['modo']);
+    if (modo != 'comprador' && modo != 'vendedor') {
+      throw ErrorApi(400, 'El modo debe ser comprador o vendedor.');
+    }
+    return _pool.runTx((conexion) async {
+      final cuenta = await conexion.execute(
+        Sql.named('SELECT rol FROM users WHERE id = @id FOR UPDATE'),
+        parameters: {'id': userId},
+      );
+      if (cuenta.isEmpty) {
+        throw ErrorApi(404, 'La cuenta ya no existe.');
+      }
+      final rol = _enum(cuenta.first[0]);
+      if (rol != 'comprador' && rol != 'vendedor') {
+        throw ErrorApi(400, 'Solo una cuenta de usuario o de vendedor puede cambiar de modo.');
+      }
+      if (modo == 'vendedor') {
+        final negocio = await conexion.execute(
+          Sql.named('SELECT 1 FROM sellers WHERE user_id = @id'),
+          parameters: {'id': userId},
+        );
+        if (negocio.isEmpty) {
+          await _insertarNegocio(conexion, userId, datos);
+        }
+      } else {
+        await conexion.execute(
+          Sql.named('UPDATE sellers SET disponible = FALSE WHERE user_id = @id'),
+          parameters: {'id': userId},
+        );
+      }
+      final filas = await conexion.execute(
+        Sql.named('UPDATE users SET rol = @modo::user_role WHERE id = @id RETURNING *'),
+        parameters: {'modo': modo, 'id': userId},
+      );
+      return _usuario(filas.first.toColumnMap());
+    });
+  }
+
+  /// Pone (o quita, con [url] null) la foto de perfil de [userId].
+  ///
+  /// Devuelve la URL anterior (para borrar el archivo) y la cuenta actualizada.
+  Future<(String?, Map<String, dynamic>)> cambiarFotoPerfil(String userId, String? url) {
+    return _pool.runTx((conexion) async {
+      final actual = await conexion.execute(
+        Sql.named('SELECT foto_perfil_url FROM users WHERE id = @id FOR UPDATE'),
+        parameters: {'id': userId},
+      );
+      if (actual.isEmpty) {
+        throw ErrorApi(404, 'La cuenta ya no existe.');
+      }
+      final filas = await conexion.execute(
+        Sql.named('UPDATE users SET foto_perfil_url = @url WHERE id = @id RETURNING *'),
+        parameters: {'url': url, 'id': userId},
+      );
+      return (actual.first[0] as String?, _usuario(filas.first.toColumnMap()));
+    });
+  }
+
+  /// Pone (o quita, con [url] null) el logo o la foto de la tienda del negocio de [userId].
+  ///
+  /// [tipo] es una clave de [columnasImagenNegocio]. Devuelve la URL anterior
+  /// (para borrar el archivo) y el negocio actualizado.
+  Future<(String?, Map<String, dynamic>)> cambiarImagenNegocio(String userId, String tipo, String? url) async {
+    final columna = columnasImagenNegocio[tipo];
+    if (columna == null) {
+      throw ErrorApi(404, 'Esa imagen del negocio no existe.');
+    }
+    final anterior = await _pool.runTx((conexion) async {
+      final actual = await conexion.execute(
+        Sql.named('SELECT $columna FROM sellers WHERE user_id = @id FOR UPDATE'),
+        parameters: {'id': userId},
+      );
+      if (actual.isEmpty) {
+        throw ErrorApi(404, _sinNegocio);
+      }
+      await conexion.execute(
+        Sql.named('UPDATE sellers SET $columna = @url WHERE user_id = @id'),
+        parameters: {'url': url, 'id': userId},
+      );
+      return actual.first[0] as String?;
+    });
+    return (anterior, (await vendedorDeUsuario(userId))!);
   }
 
   /// Usuario por id, sin el hash.
@@ -329,7 +460,7 @@ class Repositorio {
   Future<List<Map<String, dynamic>>> listarVendedoresAdmin() async {
     final filas = await _pool.execute('''
       SELECT v.*, u.ultimo_acceso
-      FROM ($_selectVendedores) v
+      FROM ($_selectTodosLosVendedores) v
       JOIN users u ON u.id = v.user_id
       ORDER BY u.ultimo_acceso ASC NULLS FIRST, v.nombre_negocio ASC
     ''');
@@ -350,9 +481,9 @@ class Repositorio {
     );
   }
 
-  /// Perfil de negocio del usuario, o null si no es vendedor.
+  /// Perfil de negocio del usuario (aunque esté en pausa), o null si no tiene.
   Future<Map<String, dynamic>?> vendedorDeUsuario(String userId) async {
-    final fila = await _una('$_selectVendedores WHERE s.user_id = @id', {'id': userId});
+    final fila = await _una('$_selectTodosLosVendedores WHERE s.user_id = @id', {'id': userId});
     if (fila == null) {
       return null;
     }
@@ -371,10 +502,26 @@ class Repositorio {
   /// Los más vendidos, según `veces_vendido`.
   Future<List<Map<String, dynamic>>> masVendidos({int limite = 8}) async {
     final filas = await _pool.execute(
-      Sql.named('$_selectProductos ORDER BY p.veces_vendido DESC LIMIT @limite'),
+      Sql.named('$_selectProductos $_soloNegociosPublicos ORDER BY p.veces_vendido DESC LIMIT @limite'),
       parameters: {'limite': limite},
     );
     return filas.map((fila) => _producto(fila.toColumnMap())).toList();
+  }
+
+  /// Negocio público por id, o null si no existe o está en pausa.
+  ///
+  /// Lo usan los enlaces compartidos (`?vendedor=<id>`).
+  Future<Map<String, dynamic>?> vendedorPublico(String sellerId) async {
+    final fila = await _una('$_selectVendedores WHERE s.id = @id', {'id': sellerId});
+    return fila == null ? null : _vendedor(fila);
+  }
+
+  /// Producto de un negocio público por id, o null.
+  ///
+  /// Lo usan los enlaces compartidos (`?producto=<id>`).
+  Future<Map<String, dynamic>?> productoPublico(String productId) async {
+    final fila = await _una('$_selectProductos $_soloNegociosPublicos WHERE p.id = @id', {'id': productId});
+    return fila == null ? null : _producto(fila);
   }
 
   /// Busca por negocio, subtipo o nombre de producto.
@@ -502,11 +649,16 @@ class Repositorio {
     return true;
   }
 
-  /// Crea o actualiza la calificación de un comprador sobre un producto.
+  /// Crea o actualiza la calificación de un comprador o vendedor sobre un producto.
   ///
   /// Exige [correoVerificado]: una cuenta nueva no califica ni comenta
   /// hasta abrir el enlace del correo de verificación.
-  Future<void> calificar({
+  ///
+  /// La reseña de un vendedor (o de quien tenga un negocio, aunque esté en
+  /// pausa) queda pendiente: no se muestra ni cuenta en los promedios hasta
+  /// que el administrador la aprueba (evita reseñas de la competencia).
+  /// Editarla la vuelve a dejar pendiente. Devuelve true si quedó pendiente.
+  Future<bool> calificar({
     required String buyerId,
     required String rol,
     required bool correoVerificado,
@@ -514,8 +666,8 @@ class Repositorio {
     required int estrellas,
     String? comentario,
   }) async {
-    if (rol != 'comprador' && rol != 'admin') {
-      throw ErrorApi(403, 'Solo un comprador puede calificar.');
+    if (rol != 'comprador' && rol != 'vendedor' && rol != 'admin') {
+      throw ErrorApi(403, 'Solo compradores y vendedores pueden calificar.');
     }
     if (!correoVerificado) {
       throw ErrorApi(403, 'Verifica tu correo para calificar y comentar. Revisa tu bandeja de entrada.');
@@ -525,12 +677,12 @@ class Repositorio {
     }
     final dueno = await _una(
       '''
-      SELECT s.user_id
+      SELECT s.user_id, EXISTS (SELECT 1 FROM sellers WHERE user_id = @autor) AS autor_con_negocio
       FROM products p
       JOIN sellers s ON s.id = p.seller_id
       WHERE p.id = @id
       ''',
-      {'id': productId},
+      {'id': productId, 'autor': buyerId},
     );
     if (dueno == null) {
       throw ErrorApi(404, 'No se encontró el producto.');
@@ -538,30 +690,35 @@ class Repositorio {
     if (dueno['user_id'].toString() == buyerId) {
       throw ErrorApi(403, 'No puedes calificar tus propios productos.');
     }
+    // También cuenta un negocio en pausa: pasar a modo comprador no evita la revisión.
+    final pendiente = rol != 'admin' && (rol == 'vendedor' || dueno['autor_con_negocio'] == true);
     await _pool.execute(
       Sql.named('''
-        INSERT INTO ratings (product_id, buyer_id, estrellas, comentario)
-        VALUES (@p, @b, @e, @c)
+        INSERT INTO ratings (product_id, buyer_id, estrellas, comentario, aprobada)
+        VALUES (@p, @b, @e, @c, @aprobada)
         ON CONFLICT (product_id, buyer_id)
-        DO UPDATE SET estrellas = EXCLUDED.estrellas, comentario = EXCLUDED.comentario
+        DO UPDATE SET estrellas = EXCLUDED.estrellas, comentario = EXCLUDED.comentario,
+                      aprobada = EXCLUDED.aprobada
       '''),
       parameters: {
         'p': productId,
         'b': buyerId,
         'e': estrellas,
         'c': _nulo(comentario?.trim() ?? ''),
+        'aprobada': !pendiente,
       },
     );
+    return pendiente;
   }
 
-  /// Reseñas de un producto, de la más reciente a la más antigua.
+  /// Reseñas aprobadas de un producto, de la más reciente a la más antigua.
   Future<List<Map<String, dynamic>>> calificacionesDe(String productId) async {
     final filas = await _pool.execute(
       Sql.named('''
-        SELECT r.estrellas, r.comentario, r.creado_en, u.nombre
+        SELECT r.estrellas, r.comentario, r.creado_en, u.nombre, u.foto_perfil_url
         FROM ratings r
         JOIN users u ON u.id = r.buyer_id
-        WHERE r.product_id = @id
+        WHERE r.product_id = @id AND r.aprobada
         ORDER BY r.creado_en DESC
         LIMIT 20
       '''),
@@ -573,6 +730,7 @@ class Repositorio {
         'estrellas': mapa['estrellas'],
         'comentario': mapa['comentario'],
         'nombre': mapa['nombre'],
+        'fotoPerfilUrl': mapa['foto_perfil_url'],
         'creadoEn': mapa['creado_en']?.toString(),
       };
     }).toList();
@@ -826,8 +984,8 @@ class Repositorio {
   /// suyo: negocio, productos, reseñas que escribió y que recibieron sus
   /// productos, favoritos, anuncios de su negocio y restablecimientos.
   ///
-  /// Devuelve las URLs de las fotos de sus productos y de su perfil, para que
-  /// la ruta borre esos archivos del disco (la base no los conoce).
+  /// Devuelve las URLs de las fotos de sus productos, de su perfil y del logo
+  /// y foto de su tienda, para que la ruta borre esos archivos del disco.
   Future<List<String>> eliminarUsuario(String userId) {
     return _pool.runTx((conexion) async {
       final fotos = await conexion.execute(
@@ -837,11 +995,13 @@ class Repositorio {
           WHERE s.user_id = @id AND p.foto_url IS NOT NULL
           UNION ALL
           SELECT foto_perfil_url FROM users WHERE id = @id AND foto_perfil_url IS NOT NULL
+          UNION ALL
+          SELECT unnest(ARRAY[logo_url, portada_url]) FROM sellers WHERE user_id = @id
         '''),
         parameters: {'id': userId},
       );
       await conexion.execute(Sql.named('DELETE FROM users WHERE id = @id'), parameters: {'id': userId});
-      return [for (final fila in fotos) fila[0].toString()];
+      return [for (final fila in fotos) if (fila[0] != null) fila[0].toString()];
     });
   }
 
@@ -1079,9 +1239,9 @@ class Repositorio {
 
   // ── Administración: negocios y productos ──────────────────────────────
 
-  /// Negocio por id, con su promedio de reseñas, o null.
+  /// Negocio por id (aunque esté en pausa), con su promedio de reseñas, o null.
   Future<Map<String, dynamic>?> vendedorPorId(String sellerId) async {
-    final fila = await _una('$_selectVendedores WHERE s.id = @id', {'id': sellerId});
+    final fila = await _una('$_selectTodosLosVendedores WHERE s.id = @id', {'id': sellerId});
     return fila == null ? null : _vendedor(fila);
   }
 
@@ -1149,7 +1309,11 @@ class Repositorio {
         throw ErrorApi(404, 'No se encontró ese negocio.');
       }
       final fotos = await conexion.execute(
-        Sql.named('SELECT foto_url FROM products WHERE seller_id = @id AND foto_url IS NOT NULL'),
+        Sql.named('''
+          SELECT foto_url FROM products WHERE seller_id = @id AND foto_url IS NOT NULL
+          UNION ALL
+          SELECT unnest(ARRAY[logo_url, portada_url]) FROM sellers WHERE id = @id
+        '''),
         parameters: {'id': sellerId},
       );
       await conexion.execute(Sql.named('DELETE FROM sellers WHERE id = @id'), parameters: {'id': sellerId});
@@ -1157,7 +1321,7 @@ class Repositorio {
         Sql.named("UPDATE users SET rol = 'comprador' WHERE id = @user AND rol = 'vendedor'"),
         parameters: {'user': negocio.first[0].toString()},
       );
-      return [for (final fila in fotos) fila[0].toString()];
+      return [for (final fila in fotos) if (fila[0] != null) fila[0].toString()];
     });
   }
 
@@ -1298,16 +1462,21 @@ class Repositorio {
 
   // ── Administración: reseñas ───────────────────────────────────────────
 
-  /// Últimas 100 reseñas de toda la app, con producto, negocio y autor.
+  /// Reseñas pendientes de aprobación y las más recientes (100 en total).
+  ///
+  /// Las pendientes van primero. `negocioAutor` es el negocio de quien la
+  /// escribió (si tiene uno), para detectar reseñas de la competencia.
   Future<List<Map<String, dynamic>>> calificacionesRecientes() async {
     final filas = await _pool.execute('''
-      SELECT r.product_id, r.buyer_id, r.estrellas, r.comentario, r.creado_en,
-             p.nombre AS producto, s.nombre_negocio, u.nombre, u.apellido, u.correo
+      SELECT r.product_id, r.buyer_id, r.estrellas, r.comentario, r.creado_en, r.aprobada,
+             p.nombre AS producto, s.nombre_negocio, u.nombre, u.apellido, u.correo,
+             sa.nombre_negocio AS negocio_autor
       FROM ratings r
       JOIN products p ON p.id = r.product_id
       JOIN sellers s ON s.id = p.seller_id
       JOIN users u ON u.id = r.buyer_id
-      ORDER BY r.creado_en DESC
+      LEFT JOIN sellers sa ON sa.user_id = r.buyer_id
+      ORDER BY r.aprobada ASC, r.creado_en DESC
       LIMIT 100
     ''');
     return filas.map((fila) {
@@ -1322,8 +1491,19 @@ class Repositorio {
         'nombreNegocio': mapa['nombre_negocio'],
         'autor': '${mapa['nombre']} ${mapa['apellido']}'.trim(),
         'correo': mapa['correo'],
+        'aprobada': mapa['aprobada'] == true,
+        'negocioAutor': mapa['negocio_autor'],
       };
     }).toList();
+  }
+
+  /// Aprueba la reseña pendiente de [autorId] sobre [productoId]: se vuelve pública.
+  Future<void> aprobarCalificacion(String productoId, String autorId) async {
+    final resultado = await _pool.execute(
+      Sql.named('UPDATE ratings SET aprobada = TRUE WHERE product_id = @p AND buyer_id = @b'),
+      parameters: {'p': productoId, 'b': autorId},
+    );
+    _exigirAfectada(resultado, 'No se encontró esa reseña.');
   }
 
   /// Borra la reseña de [autorId] sobre [productoId].
@@ -1353,6 +1533,7 @@ class Repositorio {
         (SELECT COUNT(*) FROM sellers WHERE edificio IS NULL)::int AS sin_punto,
         (SELECT COUNT(*) FROM products)::int AS productos,
         (SELECT COUNT(*) FROM ratings)::int AS calificaciones,
+        (SELECT COUNT(*) FROM ratings WHERE NOT aprobada)::int AS resenas_pendientes,
         (SELECT COUNT(*) FROM favorites)::int AS favoritos,
         (SELECT COUNT(*) FROM announcements WHERE activo)::int AS avisos_activos,
         (SELECT COUNT(*) FROM anuncios)::int AS anuncios,
@@ -1374,20 +1555,21 @@ class Repositorio {
   /// textos fijos, nunca con lo que escribe la persona.
   static const Map<String, ({String columnas, String orden})> tablasVisibles = {
     'users': (
-      columnas: 'id, nombre, apellido, correo, rol, telefono, numero_control, carrera, bloqueado, '
+      columnas: 'id, nombre, apellido, correo, rol, telefono, numero_control, carrera, foto_perfil_url, bloqueado, '
           'correo_verificado, creado_en',
       orden: 'creado_en DESC',
     ),
     'sellers': (
       columnas: 'id, user_id, nombre_negocio, categoria, subtipo, descripcion, horario_apertura, horario_cierre, '
-          'dias_atencion, disponible, edificio, destacado, destacado_hasta, whatsapp, telegram, instagram, telefono_fijo',
+          'dias_atencion, disponible, edificio, destacado, destacado_hasta, whatsapp, telegram, instagram, telefono_fijo, '
+          'logo_url, portada_url',
       orden: 'nombre_negocio',
     ),
     'products': (
       columnas: 'id, seller_id, nombre, precio, descripcion, foto_url, agotado, veces_vendido, creado_en, actualizado_en',
       orden: 'creado_en DESC',
     ),
-    'ratings': (columnas: 'product_id, buyer_id, estrellas, comentario, creado_en', orden: 'creado_en DESC'),
+    'ratings': (columnas: 'product_id, buyer_id, estrellas, comentario, aprobada, creado_en', orden: 'creado_en DESC'),
     'favorites': (columnas: 'user_id, seller_id', orden: 'user_id'),
     'announcements': (columnas: 'id, titulo, contenido, activo, publicado_en', orden: 'publicado_en DESC'),
     'anuncios': (columnas: 'seccion, posicion, imagen_url, seller_id, actualizado_en', orden: 'seccion, posicion'),
@@ -1508,6 +1690,8 @@ class Repositorio {
       'instagram': fila['instagram'],
       'telefonoFijo': fila['telefono_fijo'],
       'aceptaMensajesApp': fila['acepta_mensajes_app'] != false,
+      'logoUrl': fila['logo_url'],
+      'portadaUrl': fila['portada_url'],
       'promedioEstrellas': double.parse((fila['promedio_estrellas'] ?? 0).toString()),
       'totalResenas': int.parse((fila['total_resenas'] ?? 0).toString()),
     };

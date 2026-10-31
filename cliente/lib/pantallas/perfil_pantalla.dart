@@ -7,9 +7,11 @@ import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
 import '../widgets/datos_opcionales.dart';
 import '../widgets/eliminar_cuenta.dart';
+import '../widgets/selector_imagen.dart';
 import '../widgets/tarjeta_vendedor.dart';
 import '../widgets/verificacion.dart';
 import 'detalle_vendedor.dart';
+import 'modo_cuenta.dart';
 import 'panel_admin.dart';
 import 'panel_negocio.dart';
 
@@ -173,6 +175,20 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
     );
   }
 
+  /// Sube, cambia o quita la foto de perfil (se comprime a 512 px).
+  Future<void> _cambiarFoto(Usuario usuario) async {
+    final tieneFoto = (usuario.fotoPerfilUrl ?? '').isNotEmpty;
+    final eleccion = await elegirImagen(context, titulo: 'Foto de perfil', puedeQuitar: tieneFoto, ladoMaximo: 512);
+    if (eleccion == null || !mounted) {
+      return;
+    }
+    await intentar(
+      context,
+      () => widget.estado.cambiarFotoPerfil(eleccion.foto),
+      exito: eleccion.quitar ? 'Foto de perfil quitada.' : 'Foto de perfil actualizada.',
+    );
+  }
+
   List<Widget> _contenido(BuildContext context, Usuario usuario) {
     final tenue = TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant);
     switch (widget.seccion) {
@@ -185,7 +201,9 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
               context: context,
               builder: (_) => _EditarDatos(estado: widget.estado),
             ),
+            alCambiarFoto: () => _cambiarFoto(usuario),
           ),
+          TarjetaModoCuenta(estado: widget.estado),
           // El administrador no puede borrarse a sí mismo (lo impide también el servidor).
           if (!usuario.esAdmin) TarjetaEliminarCuenta(estado: widget.estado, vendedor: usuario.esVendedor),
         ];
@@ -257,10 +275,11 @@ class _PerfilPantallaState extends State<PerfilPantalla> {
 }
 
 class _Encabezado extends StatelessWidget {
-  const _Encabezado({required this.usuario, required this.alEditar});
+  const _Encabezado({required this.usuario, required this.alEditar, required this.alCambiarFoto});
 
   final Usuario usuario;
   final VoidCallback alEditar;
+  final VoidCallback alCambiarFoto;
 
   @override
   Widget build(BuildContext context) {
@@ -279,10 +298,25 @@ class _Encabezado extends StatelessWidget {
           children: [
             Row(
               children: [
-                CircleAvatar(
-                  radius: 32,
-                  backgroundColor: ColoresLiebre.primario,
-                  child: Text(usuario.inicial, style: const TextStyle(color: Colors.white, fontSize: 26)),
+                Tooltip(
+                  message: 'Cambiar foto de perfil',
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: alCambiarFoto,
+                    child: Badge(
+                      alignment: AlignmentDirectional.bottomEnd,
+                      offset: const Offset(-4, -4),
+                      backgroundColor: tema.colorScheme.secondaryContainer,
+                      label: Icon(Icons.photo_camera_outlined, size: 14, color: tema.colorScheme.onSecondaryContainer),
+                      child: AvatarUsuario(
+                        nombre: usuario.nombre,
+                        fotoUrl: usuario.fotoPerfilUrl,
+                        radio: 32,
+                        fondo: ColoresLiebre.primario,
+                        colorTexto: Colors.white,
+                      ),
+                    ),
+                  ),
                 ),
                 const SizedBox(width: Espacio.l),
                 Expanded(
@@ -379,7 +413,7 @@ class _FilaCuenta extends StatelessWidget {
     // Igual que el servidor: un moderador no bloquea a moderadores ni al admin.
     final puedeBloquear = actor.esAdmin || !cuenta.esModerador;
     return ListTile(
-      leading: CircleAvatar(child: Text(cuenta.inicial)),
+      leading: AvatarUsuario(nombre: cuenta.nombre, fotoUrl: cuenta.fotoPerfilUrl),
       title: Text(cuenta.nombreCompleto),
       subtitle: Text(cuenta.bloqueado ? '${cuenta.rolEtiqueta} · Bloqueada' : '${cuenta.rolEtiqueta} · ${cuenta.correo}'),
       trailing: Wrap(

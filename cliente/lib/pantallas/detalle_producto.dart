@@ -5,6 +5,7 @@ import '../servicios/api.dart';
 import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
+import '../widgets/compartir.dart';
 import '../widgets/verificacion.dart';
 import 'sesion_dialogo.dart';
 
@@ -62,11 +63,18 @@ class _HojaProductoState extends State<_HojaProducto> {
       return;
     }
     setState(() => _enviando = true);
-    final ok = await intentar(
-      context,
-      () => widget.estado.api.calificar(widget.producto.id, _estrellas, _comentario.text),
-      exito: 'Gracias por tu calificación.',
-    );
+    var pendiente = false;
+    final ok = await intentar(context, () async {
+      pendiente = await widget.estado.api.calificar(widget.producto.id, _estrellas, _comentario.text);
+    });
+    if (ok && mounted) {
+      mostrarAviso(
+        context,
+        pendiente
+            ? 'Gracias. Tu reseña se publicará cuando la apruebe la administración.'
+            : 'Gracias por tu calificación.',
+      );
+    }
     if (!mounted) {
       return;
     }
@@ -95,7 +103,16 @@ class _HojaProductoState extends State<_HojaProducto> {
               ImagenRed(producto.fotoUrl!, alto: 240, ancho: double.infinity, radio: 16),
               const SizedBox(height: Espacio.l),
             ],
-            Text(producto.nombre, style: tema.textTheme.headlineSmall),
+            Row(
+              children: [
+                Expanded(child: Text(producto.nombre, style: tema.textTheme.headlineSmall)),
+                IconButton(
+                  tooltip: 'Compartir producto',
+                  onPressed: () => compartirProducto(context, producto),
+                  icon: const Icon(Icons.share_outlined),
+                ),
+              ],
+            ),
             const SizedBox(height: Espacio.xs),
             Row(
               children: [
@@ -133,6 +150,15 @@ class _HojaProductoState extends State<_HojaProducto> {
             else if (!widget.estado.usuario!.correoVerificado)
               AvisoVerificacion(estado: widget.estado)
             else ...[
+              // Los vendedores pueden opinar, pero su reseña pasa antes por la administración.
+              if (widget.estado.usuario!.esVendedor)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: Espacio.s),
+                  child: Text(
+                    textoResenaVendedor,
+                    style: TextStyle(color: tema.colorScheme.onSurfaceVariant),
+                  ),
+                ),
               Row(
                 children: [
                   for (var n = 1; n <= 5; n++)
@@ -192,6 +218,10 @@ class _HojaProductoState extends State<_HojaProducto> {
   }
 }
 
+/// Aviso sobre el formulario de reseña cuando quien califica es vendedor.
+const String textoResenaVendedor = 'Como vendedor, tu reseña se publicará cuando la apruebe la administración. '
+    'Así evitamos opiniones falsas entre negocios.';
+
 class _FilaResena extends StatelessWidget {
   const _FilaResena(this.resena);
 
@@ -202,7 +232,7 @@ class _FilaResena extends StatelessWidget {
     final fecha = resena.creadoEn;
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(child: Text(resena.nombre.isEmpty ? '?' : resena.nombre[0].toUpperCase())),
+      leading: AvatarUsuario(nombre: resena.nombre, fotoUrl: resena.fotoPerfilUrl),
       title: Row(
         children: [
           Flexible(child: Text(resena.nombre, overflow: TextOverflow.ellipsis)),

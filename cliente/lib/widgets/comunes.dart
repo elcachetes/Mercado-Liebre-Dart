@@ -182,6 +182,45 @@ class ImagenRed extends StatelessWidget {
   }
 }
 
+/// Foto de perfil en un círculo. Sin foto (o si no carga), la inicial de [nombre].
+class AvatarUsuario extends StatelessWidget {
+  /// [fondo] y [colorTexto] solo se usan para la inicial.
+  const AvatarUsuario({super.key, required this.nombre, this.fotoUrl, this.radio = 20, this.fondo, this.colorTexto});
+
+  /// Nombre de la persona; su primera letra es el respaldo.
+  final String nombre;
+
+  /// `/medios/...` o URL completa; null o vacía muestra la inicial.
+  final String? fotoUrl;
+
+  /// Radio del círculo.
+  final double radio;
+
+  /// Fondo detrás de la inicial.
+  final Color? fondo;
+
+  /// Color de la inicial.
+  final Color? colorTexto;
+
+  @override
+  Widget build(BuildContext context) {
+    final inicial = Text(
+      nombre.isEmpty ? '?' : nombre.characters.first.toUpperCase(),
+      style: TextStyle(color: colorTexto, fontSize: radio * 0.8, fontWeight: FontWeight.w700),
+    );
+    final foto = fotoUrl ?? '';
+    return CircleAvatar(
+      radius: radio,
+      backgroundColor: fondo,
+      child: foto.isEmpty
+          ? inicial
+          : ClipOval(
+              child: ImagenRed(foto, alto: radio * 2, ancho: radio * 2, radio: 0, respaldo: Center(child: inicial)),
+            ),
+    );
+  }
+}
+
 /// Estrellas de 0 a 5, con el promedio y el número de reseñas.
 class Estrellas extends StatelessWidget {
   /// [total] se omite si es null.

@@ -23,6 +23,12 @@ class ConfiguracionApp {
     return _definido.endsWith('/') ? _definido.substring(0, _definido.length - 1) : _definido;
   }
 
+  /// Dirección pública de la app web, sin barra final. Base de los enlaces para compartir.
+  ///
+  /// En el navegador es el sitio abierto; en Android, iOS y Windows es el
+  /// dominio de la API, que en producción sirve también la versión web.
+  static String get urlApp => kIsWeb ? Uri.base.origin : apiBaseUrl;
+
   /// Convierte `/medios/...` en una URL absoluta de la API.
   static String urlPublica(String ruta) {
     if (ruta.startsWith('http://') || ruta.startsWith('https://')) {

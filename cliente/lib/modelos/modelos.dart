@@ -91,6 +91,11 @@ class Usuario {
   /// Verdadero si ve el panel de administración.
   bool get esAdmin => rol == 'admin';
 
+  /// Puede pasar de usuario a vendedor y viceversa (`POST /api/yo/modo`).
+  ///
+  /// Admin y moderador no: para ver la app como otro rol usan la vista previa.
+  bool get puedeCambiarModo => rol == 'comprador' || rol == 'vendedor';
+
   /// Copia de la cuenta con otro [rol].
   ///
   /// La usa la vista previa (`EstadoApp.vista`) para mostrar la app como la ve
@@ -161,6 +166,8 @@ class Vendedor {
     this.promedioEstrellas = 0,
     this.totalResenas = 0,
     this.ultimoAcceso,
+    this.logoUrl,
+    this.portadaUrl,
   });
 
   /// Id del negocio.
@@ -226,6 +233,12 @@ class Vendedor {
   /// Reseñas recibidas en todos sus productos.
   final int totalResenas;
 
+  /// Logo de la tienda (`/medios/...`), o null. Sustituye al icono de la categoría.
+  final String? logoUrl;
+
+  /// Foto de la tienda o del puesto (`/medios/...`), o null. Encabeza su ficha.
+  final String? portadaUrl;
+
   /// Canales de contacto publicados, en orden de preferencia: (canal, valor).
   List<(String, String)> get contactos => [
         if ((whatsapp ?? '').isNotEmpty) ('WhatsApp', whatsapp!),
@@ -270,6 +283,8 @@ class Vendedor {
       promedioEstrellas: (json['promedioEstrellas'] as num?)?.toDouble() ?? 0,
       totalResenas: (json['totalResenas'] as num?)?.toInt() ?? 0,
       ultimoAcceso: DateTime.tryParse(json['ultimoAcceso'] as String? ?? '')?.toLocal(),
+      logoUrl: json['logoUrl'] as String?,
+      portadaUrl: json['portadaUrl'] as String?,
     );
   }
 }
@@ -653,6 +668,8 @@ class ResenaAdmin {
     required this.correo,
     this.comentario,
     this.creadoEn,
+    this.aprobada = true,
+    this.negocioAutor,
   });
 
   /// Producto calificado.
@@ -682,6 +699,12 @@ class ResenaAdmin {
   /// Fecha.
   final DateTime? creadoEn;
 
+  /// Falso mientras espera aprobación (reseñas escritas por vendedores).
+  final bool aprobada;
+
+  /// Negocio de quien la escribió, si tiene uno: ayuda a detectar a la competencia.
+  final String? negocioAutor;
+
   /// Construye desde el JSON de la API.
   factory ResenaAdmin.fromJson(Map<String, dynamic> json) {
     return ResenaAdmin(
@@ -694,6 +717,8 @@ class ResenaAdmin {
       correo: json['correo'] as String? ?? '',
       comentario: json['comentario'] as String?,
       creadoEn: DateTime.tryParse(json['creadoEn'] as String? ?? ''),
+      aprobada: json['aprobada'] != false,
+      negocioAutor: json['negocioAutor'] as String?,
     );
   }
 }
@@ -747,7 +772,7 @@ class PaginaTabla {
 /// Reseña de un producto, tal como la muestra `GET /api/calificaciones`.
 class Calificacion {
   /// Estrellas, comentario opcional y quién la escribió.
-  Calificacion({required this.estrellas, required this.nombre, this.comentario, this.creadoEn});
+  Calificacion({required this.estrellas, required this.nombre, this.comentario, this.creadoEn, this.fotoPerfilUrl});
 
   /// De 1 a 5.
   final int estrellas;
@@ -761,6 +786,9 @@ class Calificacion {
   /// Fecha de la reseña.
   final DateTime? creadoEn;
 
+  /// Foto de perfil de quien calificó, o null.
+  final String? fotoPerfilUrl;
+
   /// Construye desde el JSON de la API.
   factory Calificacion.fromJson(Map<String, dynamic> json) {
     return Calificacion(
@@ -768,6 +796,7 @@ class Calificacion {
       nombre: json['nombre'] as String? ?? 'Anónimo',
       comentario: json['comentario'] as String?,
       creadoEn: DateTime.tryParse(json['creadoEn'] as String? ?? ''),
+      fotoPerfilUrl: json['fotoPerfilUrl'] as String?,
     );
   }
 }

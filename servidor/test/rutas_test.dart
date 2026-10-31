@@ -145,6 +145,30 @@ void main() {
     });
   });
 
+  group('modo, fotos y reseñas', () {
+    for (final (metodo, ruta) in [
+      ('POST', '/api/yo/modo'),
+      ('POST', '/api/yo/foto'),
+      ('DELETE', '/api/yo/foto'),
+      ('POST', '/api/vendedores/imagen/logo'),
+      ('DELETE', '/api/vendedores/imagen/portada'),
+      ('POST', '/api/calificaciones'),
+    ]) {
+      test('$metodo $ruta sin sesión responde 401', () async {
+        final (estado, _) = await pedir(metodo, ruta, cuerpo: '{}');
+        expect(estado, 401);
+      });
+    }
+
+    test('las imágenes del negocio solo usan columnas fijas', () {
+      expect(Repositorio.columnasImagenNegocio, {'logo': 'logo_url', 'portada': 'portada_url'});
+    });
+
+    test('el explorador muestra si una reseña está aprobada', () {
+      expect(Repositorio.tablasVisibles['ratings']!.columnas, contains('aprobada'));
+    });
+  });
+
   group('administración', () {
     for (final (metodo, ruta) in [
       ('GET', '/api/admin/resumen'),
@@ -159,6 +183,7 @@ void main() {
       ('PUT', '/api/admin/anuncios/1/1'),
       ('GET', '/api/admin/avisos'),
       ('DELETE', '/api/admin/calificaciones/x/y'),
+      ('POST', '/api/admin/calificaciones/x/y/aprobar'),
     ]) {
       test('$metodo $ruta sin sesión responde 401', () async {
         final (estado, _) = await pedir(metodo, ruta, cuerpo: metodo == 'GET' ? null : '{}');

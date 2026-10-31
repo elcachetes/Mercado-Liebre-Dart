@@ -40,6 +40,7 @@ cliente/lib/
   configuracion.dart     API_BASE_URL (dart-define). "same" = mismo dominio (producción).
   servicios/api.dart     ClienteApi: un método por endpoint. Todo error → ErrorApi.
   servicios/estado.dart  EstadoApp (ChangeNotifier): sesión, tema, apariencia, anuncios, favoritos, eliminarCuenta,
+                         cambiarModo (usuario ↔ vendedor, cambio REAL de rol), cambiarFotoPerfil,
                          vista previa (VistaCuenta: admin → vendedor/usuario, vendedor → usuario; solo cambia la interfaz).
   servicios/instalacion.dart  InstalacionApp: botón "Instalar app" (PWA). Web: instalacion_web.dart ↔ window.liebrePwa de web/index.html.
   modelos/modelos.dart   Usuario, Vendedor, Producto, Calificacion, Apariencia, Aviso, Anuncio, Restablecimiento,
@@ -47,15 +48,20 @@ cliente/lib/
   pantallas/             Una pantalla por archivo. marco.dart = barra roja con las pestañas,
                          botón Favoritos, menú de la cuenta (secciones, vistas previas, Reportar falla)
                          y barra lateral de publicidad.
-  pantallas/perfil_pantalla.dart  SeccionCuenta: cada opción del menú del nombre es una página.
-  pantallas/panel_negocio.dart    "Mi negocio": catálogo (foto de galería o cámara con image_picker), horario, contacto, eliminar cuenta.
+  pantallas/perfil_pantalla.dart  SeccionCuenta: cada opción del menú del nombre es una página. "Mis datos" lleva la foto de perfil.
+  pantallas/modo_cuenta.dart      cambiarModoCuenta, TarjetaModoCuenta y DialogoNuevoNegocio (POST /api/yo/modo).
+  pantallas/panel_negocio.dart    "Mi negocio": logo y foto de la tienda, compartir, catálogo (foto de galería o cámara),
+                                  horario, contacto, eliminar cuenta.
+  pantallas/detalle_vendedor.dart Ficha del negocio + abrirEnlaceCompartido (?vendedor= / ?producto= al abrir la web).
   pantallas/panel_admin.dart      PanelAdmin: página con pestañas. Lista `pestanas`; cada una vive en pantallas/admin/.
   pantallas/admin/       Una pestaña por archivo (admin_usuarios, admin_vendedores, admin_mapa, admin_publicidad,
                          admin_avisos, admin_resenas, admin_contrasenas, admin_base_datos, admin_apariencia, admin_resumen).
                          comun_admin.dart: CargaAdmin (carga/error/recargar), BuscadorAdmin, Etiqueta, fechaCorta, subirImagenAdmin.
   widgets/comunes.dart   mostrarAviso, intentar, confirmar, EstadoVacio, TituloSeccion, ImagenRed, Estrellas.
-  widgets/comunes.dart   (también LogoLiebre: el icono de la app dentro de la interfaz)
-  widgets/tarjeta_vendedor.dart  Tarjeta de negocio + iconoCategoria + ubicacionDe.
+  widgets/comunes.dart   (también LogoLiebre: el icono de la app dentro de la interfaz, y AvatarUsuario: foto de perfil o inicial)
+  widgets/tarjeta_vendedor.dart  Tarjeta de negocio + LogoNegocio (logo o icono) + iconoCategoria + ubicacionDe.
+  widgets/selector_imagen.dart   elegirImagen (hoja galería/cámara/quitar), leerFoto (elige y comprime), hayCamara.
+  widgets/compartir.dart         compartirVendedor/compartirProducto: Facebook, Telegram o copiar enlace (enlaceVendedor/enlaceProducto).
   widgets/tarjeta_producto.dart  TarjetaProducto y MiniaturaProducto (foto o icono).
   widgets/datos_opcionales.dart  CamposOpcionales (teléfono, nº de control, carrera), carrerasItcj, ValidarOpcional.
   widgets/selector_dias.dart     SelectorDias + diasDesdeTexto/textoDeDias ("Lun-Vie", "Lun, Mié, Vie").
@@ -108,6 +114,10 @@ herramientas/            Scripts de mantenimiento (generar_iconos.py).
 | Una clave de apariencia (`servidor/lib/apariencia.dart`)  | Clase `Apariencia` en `cliente/lib/modelos/modelos.dart` (campo, `fromJson`, `toJson`, `predeterminada`) y `pantallas/admin/admin_apariencia.dart`. |
 | Número de carruseles o de imágenes (`seccionesPublicidad`, `anunciosPorSeccion`) | `CHECK` de la tabla `anuncios` en `schema.sql`, `Anuncio.secciones/porSeccion` en el cliente. |
 | Dónde va la publicidad (lateral o en la lista)    | Solo `anchoBarraLateral`, `resultadosAntesDeAnuncio` y `resultadosEntreAnuncios` en `widgets/publicidad.dart`. |
+| Quién ve un negocio (público vs. en pausa)        | `_selectVendedores` (público: dueño no comprador) y `_selectTodosLosVendedores` (admin y dueño) en `repositorio.dart`; `_soloNegociosPublicos` para productos. Una consulta pública nueva usa la versión pública. |
+| Quién necesita aprobación para reseñar            | `Repositorio.calificar` (vendedor o cualquiera con negocio, salvo admin), `textoResenaVendedor` en `detalle_producto.dart` y la pestaña `admin_resenas.dart`. Toda lectura pública de `ratings` filtra `aprobada` (vista `product_ratings_summary`, `_promediosNegocio`, `calificacionesDe`). |
+| Una imagen del negocio (logo, portada)            | `Repositorio.columnasImagenNegocio`, columnas en `schema.sql`, `_vendedor`, `eliminarUsuario`/`eliminarNegocio` (devuelven los archivos) y `Vendedor` en el cliente. |
+| Los enlaces para compartir (`?vendedor=`, `?producto=`) | `enlaceVendedor`/`enlaceProducto` en `widgets/compartir.dart` y `abrirEnlaceCompartido` en `detalle_vendedor.dart`. |
 | Inactividad de un negocio (30 días)               | `diasInactividad` en `admin/admin_vendedores.dart`. El último uso se anota en `_Sesion.anotarAcceso` (`rutas.dart`). |
 | Tiempo de cada anuncio                            | Solo `duracionAnuncio` en `widgets/publicidad.dart` (el texto de `admin_publicidad.dart` lo lee de ahí). |
 | Algo que pertenece a una cuenta (tabla nueva con `user_id` o `seller_id`) | `ON DELETE CASCADE` en la llave foránea, para que "Eliminar cuenta" lo borre. Si guarda archivos en `/medios`, devuélvelos en `Repositorio.eliminarUsuario`. |
@@ -178,6 +188,8 @@ Usa `ListView` con `padding: EdgeInsets.all(Espacio.l)`, títulos con
   apunta a una fila de `restablecimientos` y solo sirve una vez. `/api/contrasena/olvido` responde
   igual exista o no la cuenta (y envía en segundo plano) para no revelar qué correos están registrados.
 - `DELETE /api/yo` pide la contraseña; un administrador no puede borrarse a sí mismo ni quitarse su rol.
+- `POST /api/yo/modo` solo cambia entre `comprador` y `vendedor`: nunca sube a moderador ni admin.
+- Las reseñas pendientes (`aprobada = FALSE`) nunca salen en rutas públicas ni cuentan en promedios.
 - El explorador de registros es de **solo lectura** y arma el SQL con nombres de `tablasVisibles`,
   nunca con texto del cliente.
 - El service worker (`web/sw.js`) nunca guarda en caché `/api/` ni `/medios/`.

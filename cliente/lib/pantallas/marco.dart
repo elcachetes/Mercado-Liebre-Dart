@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../servicios/api.dart';
@@ -12,6 +13,7 @@ import 'busqueda_pantalla.dart';
 import 'detalle_vendedor.dart';
 import 'inicio_pantalla.dart';
 import 'mapa_pantalla.dart';
+import 'modo_cuenta.dart';
 import 'perfil_pantalla.dart';
 import 'sesion_dialogo.dart';
 
@@ -23,6 +25,8 @@ import 'sesion_dialogo.dart';
 /// Con una vista previa activa ([EstadoApp.vista]) muestra [_BandaVista] arriba.
 /// Cada pestaña se construye la primera vez que se visita y después se
 /// conserva (texto buscado, zoom del mapa, posición de scroll).
+/// En la web, si la dirección trae un enlace compartido (`?vendedor=` o
+/// `?producto=`), abre esa ficha al arrancar.
 class MarcoPrincipal extends StatefulWidget {
   /// Recibe el estado ya restaurado.
   const MarcoPrincipal({super.key, required this.estado});
@@ -48,6 +52,13 @@ class _MarcoPrincipalState extends State<MarcoPrincipal> {
     super.initState();
     _cuenta = widget.estado.usuario?.id;
     widget.estado.addListener(_alCambiarCuenta);
+    if (kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          abrirEnlaceCompartido(context, widget.estado, Uri.base);
+        }
+      });
+    }
   }
 
   @override
@@ -357,6 +368,7 @@ class _BotonCuenta extends StatelessWidget {
 
   static const String _salir = 'salir';
   static const String _reportar = 'reportar';
+  static const String _modo = 'modo';
 
   /// Prefijo de las opciones que cambian la vista previa (`vista:comprador`).
   static const String _prefijoVista = 'vista:';
@@ -373,6 +385,10 @@ class _BotonCuenta extends StatelessWidget {
     }
     if (opcion == _reportar) {
       await mostrarReporte(context, estado);
+      return;
+    }
+    if (opcion == _modo) {
+      await cambiarModoCuenta(context, estado);
       return;
     }
     if (opcion.startsWith(_prefijoVista)) {
@@ -432,6 +448,18 @@ class _BotonCuenta extends StatelessWidget {
             value: seccion.name,
             child: ListTile(contentPadding: EdgeInsets.zero, leading: Icon(seccion.icono), title: Text(seccion.titulo)),
           ),
+        // Cambio de modo real (no vista previa): usuario ↔ vendedor.
+        if (usuario.puedeCambiarModo) ...[
+          const PopupMenuDivider(),
+          PopupMenuItem<String>(
+            value: _modo,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.swap_horiz),
+              title: Text(usuario.esVendedor ? 'Cambiar a modo usuario' : 'Cambiar a modo vendedor'),
+            ),
+          ),
+        ],
         if (vistas.isNotEmpty) ...[
           const PopupMenuDivider(),
           for (final vista in vistas)
@@ -462,10 +490,12 @@ class _BotonCuenta extends StatelessWidget {
             Badge(
               isLabelVisible: !usuario.correoVerificado,
               smallSize: 10,
-              child: CircleAvatar(
-                radius: 15,
-                backgroundColor: Colors.white,
-                child: Text(usuario.inicial, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w700)),
+              child: AvatarUsuario(
+                nombre: usuario.nombre,
+                fotoUrl: usuario.fotoPerfilUrl,
+                radio: 15,
+                fondo: Colors.white,
+                colorTexto: Colors.black87,
               ),
             ),
             if (MediaQuery.sizeOf(context).width >= 480) ...[

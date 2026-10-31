@@ -26,7 +26,32 @@ String? ubicacionDe(Vendedor vendedor) {
   return vendedor.edificio == null ? null : 'Edificio ${vendedor.edificio}';
 }
 
-/// Ficha de un negocio: avatar, ubicación, horario y si está abierto.
+/// Logo del negocio en un círculo rojo. Sin logo (o si no carga), el icono de su categoría.
+class LogoNegocio extends StatelessWidget {
+  /// [radio] del círculo; el icono mide lo mismo.
+  const LogoNegocio({super.key, required this.vendedor, this.radio = 20});
+
+  /// Negocio dueño del logo.
+  final Vendedor vendedor;
+
+  /// Radio del círculo.
+  final double radio;
+
+  @override
+  Widget build(BuildContext context) {
+    final icono = Icon(iconoCategoria(vendedor.categoria), color: Colors.white, size: radio);
+    final logo = vendedor.logoUrl ?? '';
+    return CircleAvatar(
+      radius: radio,
+      backgroundColor: ColoresLiebre.primario,
+      child: logo.isEmpty
+          ? icono
+          : ClipOval(child: ImagenRed(logo, alto: radio * 2, ancho: radio * 2, radio: 0, respaldo: icono)),
+    );
+  }
+}
+
+/// Ficha de un negocio: logo, ubicación, horario y si está abierto.
 class TarjetaVendedor extends StatelessWidget {
   /// [alTocar] abre el detalle. Si es null, la tarjeta no es un botón.
   const TarjetaVendedor({super.key, required this.vendedor, this.alTocar, this.compacta = false, this.favorito = false});
@@ -61,10 +86,7 @@ class TarjetaVendedor extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  CircleAvatar(
-                    backgroundColor: ColoresLiebre.primario,
-                    child: Icon(iconoCategoria(vendedor.categoria), color: Colors.white, size: 20),
-                  ),
+                  LogoNegocio(vendedor: vendedor),
                   const SizedBox(width: Espacio.m),
                   Expanded(
                     child: Column(

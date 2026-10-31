@@ -105,12 +105,20 @@ CREATE INDEX IF NOT EXISTS idx_favorites_seller ON favorites (seller_id);
 -- explícitamente y la cuenta se verifica con el enlace del correo.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS correo_verificado BOOLEAN NOT NULL DEFAULT TRUE;
 
+-- Reseñas escritas por vendedores: nacen sin aprobar (aprobada = FALSE) y no
+-- se muestran ni cuentan en los promedios hasta que el administrador las
+-- aprueba, para frenar reseñas falsas de la competencia. Las de compradores
+-- y las que ya existían quedan aprobadas (DEFAULT TRUE).
+ALTER TABLE ratings ADD COLUMN IF NOT EXISTS aprobada BOOLEAN NOT NULL DEFAULT TRUE;
+CREATE INDEX IF NOT EXISTS idx_ratings_pendientes ON ratings (creado_en) WHERE NOT aprobada;
+
 CREATE OR REPLACE VIEW product_ratings_summary AS
 SELECT
   product_id,
   AVG(estrellas)::float8 AS promedio_estrellas,
   COUNT(*)::int AS total_resenas
 FROM ratings
+WHERE aprobada
 GROUP BY product_id;
 
 -- Carruseles de publicidad: 2 secciones (arriba y abajo de la barra lateral)
@@ -160,3 +168,9 @@ CREATE INDEX IF NOT EXISTS idx_restablecimientos_creado ON restablecimientos (cr
 -- registro como uso; las cuentas que ya existían empiezan con la fecha en
 -- que se agregó la columna (la inactividad se mide desde ese despliegue).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS ultimo_acceso TIMESTAMPTZ DEFAULT now();
+
+-- Logo y foto de la tienda que sube el vendedor (`/medios/...`). Se borran
+-- del disco al eliminar el negocio o la cuenta (Repositorio.eliminarNegocio
+-- y eliminarUsuario los devuelven).
+ALTER TABLE sellers ADD COLUMN IF NOT EXISTS logo_url TEXT;
+ALTER TABLE sellers ADD COLUMN IF NOT EXISTS portada_url TEXT;

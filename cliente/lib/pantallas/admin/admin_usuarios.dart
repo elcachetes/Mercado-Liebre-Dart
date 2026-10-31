@@ -145,7 +145,7 @@ class _FilaUsuario extends StatelessWidget {
   Widget build(BuildContext context) {
     final esquema = Theme.of(context).colorScheme;
     return ListTile(
-      leading: CircleAvatar(child: Text(cuenta.inicial)),
+      leading: AvatarUsuario(nombre: cuenta.nombre, fotoUrl: cuenta.fotoPerfilUrl),
       title: Text(cuenta.nombreCompleto + (_propia ? ' (tú)' : '')),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,22 +1,23 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../modelos/modelos.dart';
 import '../servicios/api.dart';
 import '../servicios/estado.dart';
-import '../servicios/imagenes.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
+import '../widgets/compartir.dart';
 import '../widgets/eliminar_cuenta.dart';
+import '../widgets/selector_imagen.dart';
 import '../widgets/tarjeta_producto.dart';
+import '../widgets/tarjeta_vendedor.dart';
 import '../widgets/selector_dias.dart';
 import 'sesion_dialogo.dart';
 
-/// Disponibilidad, catálogo, horario y contacto del vendedor autenticado.
+/// Disponibilidad, logo y foto de la tienda, catálogo, horario y contacto del vendedor autenticado.
 ///
 /// El edificio del puesto no se edita aquí: se elige tocando el plano.
 class PanelNegocio extends StatefulWidget {
@@ -166,6 +167,35 @@ class _PanelNegocioState extends State<PanelNegocio> {
     }
   }
 
+  /// Sube, cambia o quita el `logo` (512 px) o la `portada` (foto de la tienda, 1280 px).
+  Future<void> _cambiarImagen(String tipo) async {
+    final logo = tipo == 'logo';
+    final actual = logo ? widget.negocio.logoUrl : widget.negocio.portadaUrl;
+    final eleccion = await elegirImagen(
+      context,
+      titulo: logo ? 'Logo de la tienda' : 'Foto de la tienda',
+      puedeQuitar: (actual ?? '').isNotEmpty,
+      ladoMaximo: logo ? 512 : 1280,
+    );
+    if (eleccion == null || !mounted) {
+      return;
+    }
+    final api = widget.estado.api;
+    final foto = eleccion.foto;
+    final ok = await _guardar(
+      () => foto == null ? api.quitarImagenNegocio(tipo) : api.subirImagenNegocio(tipo, '$tipo.jpg', base64Encode(foto)),
+      exito: switch ((logo, foto == null)) {
+        (true, true) => 'Logo quitado.',
+        (true, false) => 'Logo guardado.',
+        (false, true) => 'Foto de la tienda quitada.',
+        (false, false) => 'Foto de la tienda guardada.',
+      },
+    );
+    if (ok) {
+      await widget.alCambiar();
+    }
+  }
+
   Future<void> _elegirHora({required bool apertura}) async {
     final elegida = await showTimePicker(
       context: context,
@@ -244,8 +274,73 @@ class _PanelNegocioState extends State<PanelNegocio> {
                 title: Text(negocio.edificio == null ? 'Sin punto en el mapa' : 'Punto ${negocio.edificio}'),
                 subtitle: const Text('Para cambiarlo, abre Mapa y toca el edificio donde vendes.'),
               ),
+              ListTile(
+                leading: const Icon(Icons.share_outlined),
+                title: const Text('Compartir mi tienda'),
+                subtitle: const Text('Por Facebook, Telegram o copiando el enlace.'),
+                onTap: () => compartirVendedor(context, negocio),
+              ),
             ],
           ),
+        ),
+        _Seccion(
+          titulo: 'Logo y foto de la tienda',
+          children: [
+            Text(
+              'El logo aparece en tu tarjeta y en tu ficha; la foto de la tienda encabeza tu ficha.',
+              style: TextStyle(color: tema.colorScheme.onSurfaceVariant),
+            ),
+            separacion,
+            Material(
+              color: tema.colorScheme.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: _ocupado ? null : () => _cambiarImagen('portada'),
+                child: AspectRatio(
+                  aspectRatio: 16 / 7,
+                  child: (negocio.portadaUrl ?? '').isNotEmpty
+                      ? ImagenRed(negocio.portadaUrl!, radio: 0, ancho: double.infinity)
+                      : Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add_photo_alternate_outlined, size: 36, color: tema.colorScheme.onSurfaceVariant),
+                            const SizedBox(height: Espacio.xs),
+                            Text('Agregar foto de la tienda', style: TextStyle(color: tema.colorScheme.onSurfaceVariant)),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+            separacion,
+            Row(
+              children: [
+                InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: _ocupado ? null : () => _cambiarImagen('logo'),
+                  child: LogoNegocio(vendedor: negocio, radio: 28),
+                ),
+                const SizedBox(width: Espacio.m),
+                Expanded(
+                  child: Wrap(
+                    alignment: WrapAlignment.end,
+                    children: [
+                      TextButton.icon(
+                        onPressed: _ocupado ? null : () => _cambiarImagen('logo'),
+                        icon: const Icon(Icons.badge_outlined),
+                        label: Text((negocio.logoUrl ?? '').isEmpty ? 'Agregar logo' : 'Cambiar logo'),
+                      ),
+                      TextButton.icon(
+                        onPressed: _ocupado ? null : () => _cambiarImagen('portada'),
+                        icon: const Icon(Icons.photo_outlined),
+                        label: Text((negocio.portadaUrl ?? '').isEmpty ? 'Agregar foto' : 'Cambiar foto'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
         _Seccion(
           titulo: 'Catálogo',
@@ -364,6 +459,11 @@ class _PanelNegocioState extends State<PanelNegocio> {
       trailing: Wrap(
         children: [
           IconButton(
+            tooltip: 'Compartir producto',
+            onPressed: () => compartirProducto(context, producto),
+            icon: const Icon(Icons.share_outlined),
+          ),
+          IconButton(
             tooltip: producto.agotado ? 'Marcar disponible' : 'Marcar agotado',
             onPressed: _ocupado ? null : () => _alternarAgotado(producto),
             icon: Icon(producto.agotado ? Icons.inventory_2_outlined : Icons.remove_shopping_cart_outlined),
@@ -465,44 +565,20 @@ class _DialogoProductoState extends State<_DialogoProducto> {
   bool _procesando = false;
 
   /// Abre la cámara ([ImageSource.camera]) o la galería / los archivos del
-  /// dispositivo ([ImageSource.gallery]) y comprime la foto elegida.
+  /// dispositivo ([ImageSource.gallery]) y guarda la foto ya comprimida.
   Future<void> _elegirFoto(ImageSource origen) async {
-    final Uint8List? bytes;
-    try {
-      bytes = await (await ImagePicker().pickImage(source: origen))?.readAsBytes();
-    } catch (_) {
-      // Sin permiso de cámara o sin cámara disponible.
-      if (mounted) {
-        mostrarAviso(
-          context,
-          origen == ImageSource.camera
-              ? 'No se pudo abrir la cámara. Revisa el permiso de cámara o elige una foto de la galería.'
-              : 'No se pudo abrir la galería.',
-        );
-      }
-      return;
-    }
-    if (bytes == null || !mounted) {
-      return;
-    }
     setState(() => _procesando = true);
-    try {
-      final comprimida = await comprimirFoto(bytes);
-      if (mounted) {
-        setState(() {
-          _fotoNueva = comprimida;
-          _quitarFoto = false;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        mostrarAviso(context, 'No se pudo leer esa imagen. Prueba con una foto JPG o PNG.');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _procesando = false);
-      }
+    final comprimida = await leerFoto(context, origen);
+    if (!mounted) {
+      return;
     }
+    setState(() {
+      _procesando = false;
+      if (comprimida != null) {
+        _fotoNueva = comprimida;
+        _quitarFoto = false;
+      }
+    });
   }
 
   @override
@@ -602,11 +678,6 @@ class _DialogoProductoState extends State<_DialogoProducto> {
     );
   }
 
-  /// Hay cámara que abrir: celulares y tabletas, en la app nativa o en el navegador.
-  /// En escritorio la "cámara" del selector solo abriría otra vez los archivos.
-  static bool get _hayCamara =>
-      defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS;
-
   /// Vista previa con botones para elegir (galería o cámara), cambiar o quitar la foto.
   Widget _foto() {
     final esquema = Theme.of(context).colorScheme;
@@ -647,9 +718,9 @@ class _DialogoProductoState extends State<_DialogoProducto> {
             TextButton.icon(
               onPressed: _procesando ? null : () => _elegirFoto(ImageSource.gallery),
               icon: const Icon(Icons.photo_library_outlined),
-              label: Text(_hayCamara ? 'Galería' : 'Elegir archivo'),
+              label: Text(hayCamara ? 'Galería' : 'Elegir archivo'),
             ),
-            if (_hayCamara)
+            if (hayCamara)
               TextButton.icon(
                 onPressed: _procesando ? null : () => _elegirFoto(ImageSource.camera),
                 icon: const Icon(Icons.photo_camera_outlined),

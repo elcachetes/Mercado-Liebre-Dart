@@ -31,12 +31,14 @@ significa vendedor **o** admin; "moderador" significa moderador **o** admin.
 | GET | `/api/apariencia` | Título, menús, iconos y URLs de imágenes. |
 | GET | `/api/vendedores?soloDisponibles=true` | Negocios; destacados primero. |
 | GET | `/api/vendedores/destacados` | Negocios con promoción vigente. |
+| GET | `/api/vendedores/<id>` | Un negocio. 404 si no existe o está en pausa. Lo usan los enlaces compartidos. |
 | GET | `/api/productos?vendedor=<sellerId>` | Catálogo de un negocio. |
-| GET | `/api/productos/mas-vendidos` | 8 productos con más `vecesVendido`. |
+| GET | `/api/productos/mas-vendidos` | 8 productos con más `vecesVendido` (solo de negocios públicos). |
+| GET | `/api/productos/<id>` | Un producto. 404 si no existe o su negocio está en pausa. |
 | GET | `/api/buscar?q=<texto>&categoria=<comida\|producto\|servicio>&soloDisponibles=true` | Ver abajo. |
 | GET | `/api/avisos` | Avisos institucionales activos. |
 | GET | `/api/anuncios` | Anuncios de los carruseles: `[{ seccion: 1-2, posicion: 1-3, imagenUrl, vendedor: {…} \| null }]`, por sección y posición. `vendedor` es el negocio que abre al tocarlo. |
-| GET | `/api/calificaciones?producto=<id>` | Últimas 20 reseñas. |
+| GET | `/api/calificaciones?producto=<id>` | Últimas 20 reseñas **aprobadas**: `{ estrellas, comentario, nombre, fotoPerfilUrl, creadoEn }`. |
 | GET | `/medios/<archivo>` | Imagen subida por el admin (caché de un año). |
 | GET | `/api/verificar-correo?token=<token>` | Enlace del correo de verificación. Responde **HTML** (no JSON): 200 verificado, 400 enlace vencido o falso, 404 cuenta borrada. |
 | POST | `/api/reportes` | Reporte de falla, queja o sugerencia. Ver abajo. |
@@ -94,7 +96,10 @@ trae todo su catálogo; si coincidió un producto, solo los productos que contie
 | GET | `/api/yo` | — | `usuario` |
 | POST | `/api/yo/verificacion` | — | `{ ok, correo }`. Reenvía el enlace de verificación. 400 si ya está verificado; 429 si pidió otro hace menos de un minuto. |
 | PATCH | `/api/yo` | `{ telefono?, numeroControl?, carrera? }` | `usuario`. Clave ausente = sin cambio; `""` = borrar. |
-| DELETE | `/api/yo` | `{ password }` | `{ ok }`. Borra la cuenta y **todo lo suyo**: negocio, productos (y sus fotos del disco), reseñas que escribió y que recibieron sus productos, favoritos, anuncios de su negocio y restablecimientos. 400 sin contraseña o si es admin; 403 contraseña incorrecta. |
+| DELETE | `/api/yo` | `{ password }` | `{ ok }`. Borra la cuenta y **todo lo suyo**: negocio, productos (y sus fotos del disco), foto de perfil, logo y foto de la tienda, reseñas que escribió y que recibieron sus productos, favoritos, anuncios de su negocio y restablecimientos. 400 sin contraseña o si es admin; 403 contraseña incorrecta. |
+| POST | `/api/yo/modo` | `{ modo: comprador\|vendedor, nombreNegocio?, categoria?, subtipo?, descripcion? }` | `usuario`. Ver "Modo usuario / vendedor". |
+| POST | `/api/yo/foto` | `{ nombre: "perfil.jpg", datos: "<base64>" }` | `usuario` con su `fotoPerfilUrl`. JPG/PNG/WEBP/GIF, máx. 1.5 MB. Reemplaza y borra la anterior. |
+| DELETE | `/api/yo/foto` | — | `usuario` sin foto (el archivo se borra). |
 
 Datos opcionales (registro y `PATCH /api/yo`): `telefono` con 7–15 dígitos
 (admite espacios, `+`, `-`, paréntesis); `numeroControl` de 6–10 dígitos con
@@ -103,6 +108,19 @@ caracteres.
 
 En el registro público `rol` solo puede ser `comprador` (por defecto) o
 `vendedor`; un vendedor necesita `nombreNegocio` y `categoria`.
+
+### Modo usuario / vendedor
+
+`POST /api/yo/modo` cambia el rol de la propia cuenta entre `comprador` y
+`vendedor` (400 para admin y moderador, que usan la vista previa de la app).
+
+- **A vendedor, primera vez:** crea el negocio; exige `nombreNegocio` (≤ 120)
+  y `categoria`, y acepta `subtipo` (≤ 80) y `descripcion` (≤ 500).
+- **A vendedor, si ya tuvo negocio:** lo recupera tal cual (catálogo, horario,
+  imágenes); vuelve **cerrado** hasta que lo abra.
+- **A comprador:** el negocio **no se borra**, queda en pausa: cerrado y fuera
+  de todas las listas públicas (búsqueda, mapa, más vendidos, publicidad,
+  `GET /api/vendedores/<id>`). El administrador lo sigue viendo.
 
 **Verificación de correo:** la cuenta pública nace con `correoVerificado: false`
 y se le envía un enlace (`/api/verificar-correo?token=…`, vence en 48 h). La
@@ -117,7 +135,12 @@ admin y las que ya existían antes de esta función quedan verificadas.
 |--------|------|--------|-----------|
 | GET | `/api/favoritos` | — | `["sellerId", …]` |
 | POST | `/api/favoritos/<sellerId>` | — | `{ marcado: bool }` (alterna) |
-| POST | `/api/calificaciones` | `{ productoId, estrellas: 1-5, comentario? }` | `{ ok }`. Solo comprador o admin con el correo verificado (403 si no); no sobre productos propios. Una reseña por persona y producto (se sobrescribe). |
+| POST | `/api/calificaciones` | `{ productoId, estrellas: 1-5, comentario? }` | `{ ok, pendiente }`. Comprador, vendedor o admin con el correo verificado (403 si no); no sobre productos propios. Una reseña por persona y producto (se sobrescribe). |
+
+**Reseñas de vendedores:** si quien califica es vendedor, o tiene un negocio
+aunque esté en pausa, la reseña se guarda con `pendiente: true`: no se muestra
+ni cuenta en los promedios hasta que el administrador la aprueba (evita
+opiniones falsas de la competencia). Editarla la vuelve a dejar pendiente.
 
 ## Vendedor
 
@@ -128,6 +151,8 @@ admin y las que ya existían antes de esta función quedan verificadas.
 | POST | `/api/vendedores/punto` | `{ edificio: "Z" }` (código de `servidor/lib/plano.dart`) |
 | PATCH | `/api/vendedores/horario` | `{ apertura: "08:00", cierre: "15:30", dias: "Lun, Mié, Vie" }` (texto libre, máx. 40; la app lo arma con `textoDeDias`) |
 | PATCH | `/api/vendedores/contacto` | `{ whatsapp?, telegram?, instagram?, telefonoFijo? }` — vacío borra |
+| POST | `/api/vendedores/imagen/<logo\|portada>` | `{ nombre: "logo.jpg", datos: "<base64>" }` → `vendedor`. `logo` = logo de la tienda, `portada` = foto de la tienda. JPG/PNG/WEBP/GIF, máx. 1.5 MB. Reemplaza y borra la anterior. Otro tipo: 404. |
+| DELETE | `/api/vendedores/imagen/<logo\|portada>` | — → `vendedor` sin esa imagen. |
 | POST | `/api/productos` | `{ nombre, precio, descripcion? }` → 201 producto |
 | PATCH | `/api/productos/<id>` | `{ nombre, precio, descripcion?, agotado }` |
 | DELETE | `/api/productos/<id>` | — (borra también su foto) |
@@ -158,7 +183,7 @@ responde 404.
 | GET | `/api/admin/conexion` | — → `{ host, puerto, base, usuario, ssl, tieneContrasena, conectada, usaEntorno }` |
 | POST | `/api/admin/conexion/probar` | `{ host, puerto, base, usuario, contrasena?, ssl }` |
 | PATCH | `/api/admin/conexion` | Igual que probar, o `{ restaurarEntorno: true }`. Reconecta en caliente y guarda en `DATOS_PATH/conexion.json`. |
-| GET | `/api/admin/resumen` | — → conteos: `usuarios, bloqueados, sinVerificar, compradores, cuentasVendedor, moderadores, administradores, vendedores, abiertos, sinPunto, productos, calificaciones, favoritos, avisosActivos, anuncios, restablecimientosPendientes` |
+| GET | `/api/admin/resumen` | — → conteos: `usuarios, bloqueados, sinVerificar, compradores, cuentasVendedor, moderadores, administradores, vendedores, abiertos, sinPunto, productos, calificaciones, resenasPendientes, favoritos, avisosActivos, anuncios, restablecimientosPendientes` |
 
 ### Cuentas
 
@@ -176,7 +201,7 @@ responde 404.
 |--------|------|--------|
 | GET | `/api/admin/vendedores` | — → lista de `vendedor` con `ultimoAcceso`: último uso de la app de su dueño (ISO 8601; se anota al entrar y en cualquier petición con token, máximo una vez por hora). Primero los más inactivos. |
 | PATCH | `/api/admin/vendedores/<id>` | Cualquier subconjunto de `nombreNegocio, categoria, subtipo, descripcion, edificio, disponible, destacado, destacadoHasta` → `vendedor`. `edificio` es un código del plano o `""` (sin punto). `destacadoHasta` ISO 8601 o `""` (sin fin). |
-| DELETE | `/api/admin/vendedores/<id>` | — Borra el negocio con productos, fotos, reseñas y anuncios. La cuenta queda como comprador. |
+| DELETE | `/api/admin/vendedores/<id>` | — Borra el negocio con productos, fotos (también logo y foto de la tienda), reseñas y anuncios. La cuenta queda como comprador. |
 | DELETE | `/api/admin/productos/<id>` | — Borra cualquier producto con su foto. |
 
 ### Anuncios (publicidad)
@@ -198,8 +223,9 @@ La app rota las imágenes de cada sección cada 6 s.
 | POST | `/api/admin/avisos` | `{ titulo (≤120), contenido (≤2000), activo? }` → 201 aviso |
 | PATCH | `/api/admin/avisos/<id>` | Cualquier subconjunto de lo anterior |
 | DELETE | `/api/admin/avisos/<id>` | — |
-| GET | `/api/admin/calificaciones` | — → últimas 100: `{ productoId, autorId, estrellas, comentario, creadoEn, producto, nombreNegocio, autor, correo }` |
-| DELETE | `/api/admin/calificaciones/<productoId>/<autorId>` | — |
+| GET | `/api/admin/calificaciones` | — → 100: primero las pendientes, luego las más recientes. `{ productoId, autorId, estrellas, comentario, creadoEn, producto, nombreNegocio, autor, correo, aprobada, negocioAutor }`. `negocioAutor` es el negocio de quien la escribió (o null). |
+| POST | `/api/admin/calificaciones/<productoId>/<autorId>/aprobar` | — Publica una reseña pendiente. |
+| DELETE | `/api/admin/calificaciones/<productoId>/<autorId>` | — Borra (o rechaza, si estaba pendiente). |
 | GET | `/api/admin/tablas` | — → `[{ tabla, filas }]` de las tablas de `Repositorio.tablasVisibles` |
 | GET | `/api/admin/tablas/<tabla>?pagina=1&limite=25` | — → `{ tabla, columnas, filas: [[…]], total, pagina, limite }`. **Solo lectura**, máx. 100 por página, nunca incluye `password_hash`. |
 
@@ -207,6 +233,14 @@ La app rota las imágenes de cada sección cada 6 s.
 
 **usuario:** `id, nombre, apellido, correo, rol, telefono, numeroControl, carrera, fotoPerfilUrl, bloqueado, perfilEditable, correoVerificado, creadoEn`
 
-**vendedor:** `id, userId, nombreNegocio, categoria, subtipo, descripcion, horarioApertura, horarioCierre, diasAtencion, horarioTexto, disponible, edificio, destacado, destacadoHasta, whatsapp, telegram, messenger, instagram, telefonoFijo, aceptaMensajesApp, promedioEstrellas, totalResenas` (las dos últimas suman las reseñas de todos sus productos)
+**vendedor:** `id, userId, nombreNegocio, categoria, subtipo, descripcion, horarioApertura, horarioCierre, diasAtencion, horarioTexto, disponible, edificio, destacado, destacadoHasta, whatsapp, telegram, messenger, instagram, telefonoFijo, aceptaMensajesApp, logoUrl, portadaUrl, promedioEstrellas, totalResenas` (las dos últimas suman las reseñas aprobadas de todos sus productos)
 
-**producto:** `id, sellerId, nombre, descripcion, precio, fotoUrl, agotado, vecesVendido, promedioEstrellas, totalResenas`
+**producto:** `id, sellerId, nombre, descripcion, precio, fotoUrl, agotado, vecesVendido, promedioEstrellas, totalResenas` (solo reseñas aprobadas)
+
+## Enlaces para compartir
+
+La app arma enlaces `https://<dominio>/?vendedor=<sellerId>` y
+`https://<dominio>/?producto=<productId>` y los comparte por Facebook
+(`facebook.com/sharer/sharer.php?u=…`), Telegram (`t.me/share/url?url=…&text=…`)
+o copiándolos. Al abrirlos, la app web pide `GET /api/vendedores/<id>` o
+`GET /api/productos/<id>` y muestra la ficha (el producto, encima de su negocio).

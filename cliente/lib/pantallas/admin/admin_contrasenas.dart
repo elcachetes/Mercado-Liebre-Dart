@@ -154,7 +154,7 @@ class _ElegirCuentaState extends State<_ElegirCuenta> {
                 children: [
                   for (final cuenta in visibles)
                     ListTile(
-                      leading: CircleAvatar(child: Text(cuenta.inicial)),
+                      leading: AvatarUsuario(nombre: cuenta.nombre, fotoUrl: cuenta.fotoPerfilUrl),
                       title: Text(cuenta.nombreCompleto),
                       subtitle: Text(cuenta.correo),
                       onTap: () => Navigator.pop(context, cuenta),
