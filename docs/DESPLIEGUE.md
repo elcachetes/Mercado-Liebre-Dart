@@ -121,7 +121,7 @@ Marca `DATABASE_URL`, `APP_SECRET_KEY` y `ADMIN_PASSWORD` como
 
 | Variable          | Valor                                                       |
 |-------------------|-------------------------------------------------------------|
-| `SMTP_USUARIO`    | La cuenta de Zoho que envía, p. ej. `no.reply@mercadoliebre.shop` |
+| `SMTP_USUARIO`    | La cuenta de Zoho que envía (por defecto `no.reply@mercadoliebre.shop`) |
 | `SMTP_PASSWORD`   | Su contraseña (**secreta**)                                  |
 | `CORREO_REPORTES` | Buzón que recibe los reportes (por defecto `miguelsoto@mercadoliebre.shop`) |
 

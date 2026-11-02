@@ -97,6 +97,7 @@ void main() {
       });
       await correo.enviarReporte(contacto: reporte.contacto, descripcion: reporte.descripcion, foto: reporte.foto);
       final mensaje = correo.enviados.single;
+      expect(mensaje.from.mailAddress, 'no.reply@ejemplo.com');
       expect(mensaje.recipients, ['buzon@ejemplo.com']);
       expect(mensaje.headers['Reply-To'], 'ana@itcj.edu.mx');
       expect(mensaje.text, contains('El botón de enviar no responde.'));

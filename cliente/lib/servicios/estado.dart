@@ -118,30 +118,18 @@ class EstadoApp extends ChangeNotifier {
         'claro' => ThemeMode.light,
         _ => ThemeMode.system,
       };
-      try {
-        apariencia = await api.apariencia();
-      } catch (_) {
-        apariencia = Apariencia.predeterminada();
-      }
-      try {
-        anuncios = await api.anuncios();
-      } catch (_) {
-        anuncios = const []; // Sin anuncios se muestra "Anúnciate aquí".
-      }
       final token = prefs.getString(_claveToken);
-      if (token != null && token.isNotEmpty) {
+      final haySesion = token != null && token.isNotEmpty;
+      if (haySesion) {
         api.token = token;
-        try {
-          usuario = await api.yo();
-          await _cargarFavoritos();
-        } on ErrorApi catch (error) {
-          // Sin red se conserva el token para reintentar en la próxima apertura.
-          api.token = null;
-          if (!error.sinConexion) {
-            await prefs.remove(_claveToken);
-          }
-        }
       }
+      // Todo se pide a la vez: en un celular cada viaje al servidor cuenta
+      // y la pantalla de arranque espera a que terminen todos.
+      await Future.wait([
+        _cargarApariencia(),
+        _cargarAnuncios(),
+        if (haySesion) _restaurarSesion(prefs),
+      ]);
     } catch (error) {
       debugPrint('No se pudo restaurar la sesión: $error');
       usuario = null;
@@ -257,6 +245,39 @@ class EstadoApp extends ChangeNotifier {
     _favoritos = {..._favoritos};
     marcado ? _favoritos.add(sellerId) : _favoritos.remove(sellerId);
     notifyListeners();
+  }
+
+  /// Apariencia pública; si falla, la predeterminada.
+  Future<void> _cargarApariencia() async {
+    try {
+      apariencia = await api.apariencia();
+    } catch (_) {
+      apariencia = Apariencia.predeterminada();
+    }
+  }
+
+  /// Anuncios de los carruseles; sin anuncios se muestra "Anúnciate aquí".
+  Future<void> _cargarAnuncios() async {
+    try {
+      anuncios = await api.anuncios();
+    } catch (_) {
+      anuncios = const [];
+    }
+  }
+
+  /// Valida el token guardado y trae la cuenta y sus favoritos en paralelo.
+  Future<void> _restaurarSesion(SharedPreferences prefs) async {
+    try {
+      final resultados = await Future.wait<Object?>([api.yo(), _cargarFavoritos()]);
+      usuario = resultados.first as Usuario;
+    } on ErrorApi catch (error) {
+      // Sin red se conserva el token para reintentar en la próxima apertura.
+      api.token = null;
+      _favoritos = {};
+      if (!error.sinConexion) {
+        await prefs.remove(_claveToken);
+      }
+    }
   }
 
   Future<void> _cargarFavoritos() async {

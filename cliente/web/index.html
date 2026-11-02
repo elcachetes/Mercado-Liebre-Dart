@@ -16,6 +16,12 @@
   <meta name="apple-mobile-web-app-title" content="Mercado Liebre">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
+  <!-- Arranque más rápido (sobre todo en iPhone, donde no hay variante ligera de CanvasKit):
+       main.dart.js empieza a bajar mientras se lee esta página, y la conexión con
+       fonts.gstatic.com (de donde Flutter trae la fuente Roboto) queda abierta de antemano. -->
+  <link rel="preload" href="main.dart.js" as="script">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
   <link rel="icon" type="image/png" href="favicon.png"/>
   <link rel="manifest" href="manifest.json">
   <title>Mercado Liebre</title>

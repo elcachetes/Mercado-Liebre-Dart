@@ -8,7 +8,7 @@
 //
 // Si cambias la lista ESENCIALES o la estrategia, sube la versión de CACHE
 // para que los navegadores borren la caché anterior.
-const CACHE = 'mercado-liebre-v1';
+const CACHE = 'mercado-liebre-v2';
 
 // Lo mínimo para mostrar la app y su icono sin red.
 const ESENCIALES = [
@@ -19,6 +19,16 @@ const ESENCIALES = [
   'icons/Icon-192.png',
   'icons/Icon-512.png',
 ];
+
+// nginx manda ETag y Last-Modified: si coinciden, la copia guardada ya es la vigente.
+function mismaVersion(guardada, nueva) {
+  const etag = nueva.headers.get('ETag');
+  if (etag) {
+    return guardada.headers.get('ETag') === etag;
+  }
+  const fecha = nueva.headers.get('Last-Modified');
+  return fecha !== null && guardada.headers.get('Last-Modified') === fecha;
+}
 
 self.addEventListener('install', (evento) => {
   evento.waitUntil(
@@ -47,10 +57,15 @@ self.addEventListener('fetch', (evento) => {
   }
   evento.respondWith(
     fetch(peticion)
-      .then((respuesta) => {
+      .then(async (respuesta) => {
         if (respuesta.ok && respuesta.type === 'basic') {
-          const copia = respuesta.clone();
-          caches.open(CACHE).then((cache) => cache.put(peticion, copia));
+          // Solo se guarda si cambió: canvaskit.wasm y main.dart.js pesan ~10 MB
+          // y reescribirlos en cada apertura hace lento el arranque en iPhone.
+          const cache = await caches.open(CACHE);
+          const guardada = await cache.match(peticion);
+          if (!guardada || !mismaVersion(guardada, respuesta)) {
+            cache.put(peticion, respuesta.clone());
+          }
         }
         return respuesta;
       })

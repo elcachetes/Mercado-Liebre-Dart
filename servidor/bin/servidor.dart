@@ -43,8 +43,13 @@ Future<void> main() async {
 
   final servidor = await serve(handler, InternetAddress.anyIPv4, configuracion.puertoHttp);
   stdout.writeln('API de Mercado Liebre en el puerto ${servidor.port}.');
-  if (!configuracion.correo.configurado) {
+  final correo = configuracion.correo;
+  if (!correo.configurado) {
     stdout.writeln('Aviso: faltan SMTP_USUARIO/SMTP_PASSWORD; no se enviarán correos de verificación ni reportes.');
+  } else {
+    // Solo direcciones, nunca la contraseña: sirve para revisar la configuración en los logs.
+    final destino = correo.destinoReportes.isEmpty ? '(falta CORREO_REPORTES)' : correo.destinoReportes;
+    stdout.writeln('Correo: envía como ${correo.direccionRemitente}; reportes a $destino.');
   }
 
   _alApagar(() async {
