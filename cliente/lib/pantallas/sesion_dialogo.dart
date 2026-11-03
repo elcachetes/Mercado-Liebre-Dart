@@ -5,6 +5,7 @@ import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
 import '../widgets/datos_opcionales.dart';
+import '../widgets/sugerencia_encontrar.dart';
 
 /// Muestra el formulario de entrada o de registro.
 Future<void> mostrarDialogoSesion(BuildContext context, EstadoApp estado, {bool registro = false}) {
@@ -382,7 +383,11 @@ class _FormularioSesionState extends State<_FormularioSesion> {
                       separacion,
                       DropdownButtonFormField<String>(
                         initialValue: _categoria,
-                        decoration: const InputDecoration(labelText: 'Categoría'),
+                        decoration: InputDecoration(
+                          labelText: 'Categoría',
+                          helperText: consejoCategoria(_categoria),
+                          helperMaxLines: 2,
+                        ),
                         items: [
                           for (final (valor, etiqueta) in categoriasNegocio)
                             DropdownMenuItem(value: valor, child: Text(etiqueta)),

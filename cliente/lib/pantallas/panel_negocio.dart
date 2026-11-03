@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../mapa/puntos_campus.dart';
 import '../modelos/modelos.dart';
 import '../servicios/api.dart';
 import '../servicios/estado.dart';
@@ -15,11 +16,13 @@ import '../widgets/selector_imagen.dart';
 import '../widgets/tarjeta_producto.dart';
 import '../widgets/tarjeta_vendedor.dart';
 import '../widgets/selector_dias.dart';
+import '../widgets/sugerencia_encontrar.dart';
 import 'sesion_dialogo.dart';
 
 /// Disponibilidad, logo y foto de la tienda, catálogo, horario y contacto del vendedor autenticado.
 ///
-/// El edificio del puesto no se edita aquí: se elige tocando el plano.
+/// El lugar del puesto se elige aquí ([_PanelNegocioState._elegirLugar]) o tocando el plano.
+/// Arriba, [SugerenciaEncontrar] pide lugar o contacto según la categoría.
 class PanelNegocio extends StatefulWidget {
   /// [negocio] es el perfil ya cargado. [alCambiar] pide recargar el perfil.
   const PanelNegocio({super.key, required this.estado, required this.negocio, required this.alCambiar});
@@ -42,6 +45,10 @@ class _PanelNegocioState extends State<PanelNegocio> {
   final TextEditingController _telegram = TextEditingController();
   final TextEditingController _instagram = TextEditingController();
   final TextEditingController _telefono = TextEditingController();
+
+  /// Para llevar a la persona a la sección Contacto desde [SugerenciaEncontrar].
+  final GlobalKey _seccionContacto = GlobalKey();
+  final FocusNode _focoWhatsapp = FocusNode();
   TimeOfDay? _apertura;
   TimeOfDay? _cierre;
   Set<int> _dias = {};
@@ -71,6 +78,7 @@ class _PanelNegocioState extends State<PanelNegocio> {
     for (final campo in [_whatsapp, _telegram, _instagram, _telefono]) {
       campo.dispose();
     }
+    _focoWhatsapp.dispose();
     super.dispose();
   }
 
@@ -196,6 +204,49 @@ class _PanelNegocioState extends State<PanelNegocio> {
     }
   }
 
+  /// Elige de la lista de [puntosCampus] el lugar donde vende y lo guarda.
+  Future<void> _elegirLugar() async {
+    final actual = widget.negocio.edificio?.toUpperCase();
+    final elegido = await showDialog<PuntoCampus>(
+      context: context,
+      builder: (contexto) => SimpleDialog(
+        title: const Text('¿Dónde vendes?'),
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: Espacio.l),
+            child: Text(
+              'Elige el edificio o la zona del plantel. También puedes tocarlo en el Mapa.',
+              style: TextStyle(color: Theme.of(contexto).colorScheme.onSurfaceVariant),
+            ),
+          ),
+          for (final punto in puntosCampus)
+            ListTile(
+              selected: punto.codigo == actual,
+              leading: CircleAvatar(radius: 16, child: Text(punto.codigo, style: const TextStyle(fontSize: 12))),
+              title: Text(punto.nombre),
+              onTap: () => Navigator.pop(contexto, punto),
+            ),
+        ],
+      ),
+    );
+    if (elegido == null || !mounted) {
+      return;
+    }
+    if (await _guardar(() => widget.estado.api.asignarPunto(elegido.codigo), exito: 'Lugar guardado: ${elegido.titulo}.')) {
+      await widget.alCambiar();
+    }
+  }
+
+  /// Desplaza hasta la sección Contacto y pone el cursor en WhatsApp.
+  void _irAContacto() {
+    final destino = _seccionContacto.currentContext;
+    if (destino == null) {
+      return;
+    }
+    Scrollable.ensureVisible(destino, duration: const Duration(milliseconds: 300), alignment: 0.1);
+    _focoWhatsapp.requestFocus();
+  }
+
   Future<void> _elegirHora({required bool apertura}) async {
     final elegida = await showTimePicker(
       context: context,
@@ -253,6 +304,11 @@ class _PanelNegocioState extends State<PanelNegocio> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        SugerenciaEncontrar(
+          vendedor: negocio,
+          alElegirLugar: _ocupado ? null : _elegirLugar,
+          alAgregarContacto: _irAContacto,
+        ),
         Card(
           child: Column(
             children: [
@@ -271,8 +327,10 @@ class _PanelNegocioState extends State<PanelNegocio> {
               ),
               ListTile(
                 leading: const Icon(Icons.place_outlined),
-                title: Text(negocio.edificio == null ? 'Sin punto en el mapa' : 'Punto ${negocio.edificio}'),
-                subtitle: const Text('Para cambiarlo, abre Mapa y toca el edificio donde vendes.'),
+                title: Text(ubicacionDe(negocio) ?? 'Sin lugar en el mapa'),
+                subtitle: const Text('Toca para elegir dónde vendes (o hazlo desde el Mapa).'),
+                trailing: const Icon(Icons.edit_location_alt_outlined),
+                onTap: _ocupado ? null : _elegirLugar,
               ),
               ListTile(
                 leading: const Icon(Icons.share_outlined),
@@ -393,12 +451,19 @@ class _PanelNegocioState extends State<PanelNegocio> {
           ],
         ),
         _Seccion(
+          key: _seccionContacto,
           titulo: 'Contacto',
           children: [
-            Text('Deja vacío un canal para ocultarlo.', style: TextStyle(color: tema.colorScheme.onSurfaceVariant)),
+            Text(
+              negocio.categoria == 'servicio'
+                  ? 'Deja al menos un teléfono o red social para que te localicen. Deja vacío un canal para ocultarlo.'
+                  : 'Si no tienes un lugar fijo, deja al menos un teléfono o red social. Deja vacío un canal para ocultarlo.',
+              style: TextStyle(color: tema.colorScheme.onSurfaceVariant),
+            ),
             separacion,
             TextField(
               controller: _whatsapp,
+              focusNode: _focoWhatsapp,
               keyboardType: TextInputType.phone,
               decoration: const InputDecoration(labelText: 'WhatsApp', prefixIcon: Icon(Icons.chat_outlined)),
             ),
@@ -495,7 +560,7 @@ class _PanelNegocioState extends State<PanelNegocio> {
 
 /// Tarjeta con título y acción opcional, para agrupar campos del panel.
 class _Seccion extends StatelessWidget {
-  const _Seccion({required this.titulo, required this.children, this.accion});
+  const _Seccion({super.key, required this.titulo, required this.children, this.accion});
 
   final String titulo;
   final List<Widget> children;

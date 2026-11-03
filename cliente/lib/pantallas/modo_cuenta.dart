@@ -5,6 +5,7 @@ import '../servicios/api.dart';
 import '../servicios/estado.dart';
 import '../tema/tema_liebre.dart';
 import '../widgets/comunes.dart';
+import '../widgets/sugerencia_encontrar.dart';
 import 'sesion_dialogo.dart';
 
 /// Cambia la cuenta de modo usuario a modo vendedor, o al revés.
@@ -202,7 +203,7 @@ class _DialogoNuevoNegocioState extends State<DialogoNuevoNegocio> {
                 ),
                 DropdownButtonFormField<String>(
                   initialValue: _categoria,
-                  decoration: const InputDecoration(labelText: 'Categoría'),
+                  decoration: InputDecoration(labelText: 'Categoría', helperText: consejoCategoria(_categoria), helperMaxLines: 2),
                   items: [
                     for (final (valor, etiqueta) in categoriasNegocio) DropdownMenuItem(value: valor, child: Text(etiqueta)),
                   ],

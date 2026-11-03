@@ -64,6 +64,8 @@ cliente/lib/
   widgets/compartir.dart         compartirVendedor/compartirProducto: Facebook, Telegram o copiar enlace (enlaceVendedor/enlaceProducto).
   widgets/tarjeta_producto.dart  TarjetaProducto y MiniaturaProducto (foto o icono).
   widgets/datos_opcionales.dart  CamposOpcionales (teléfono, nº de control, carrera), carrerasItcj, ValidarOpcional.
+  widgets/sugerencia_encontrar.dart  faltaParaEncontrar + SugerenciaEncontrar: comida/producto → lugar o contacto;
+                                 servicio → contacto. Tarjeta al inicio de "Mi negocio" y consejoCategoria en el alta.
   widgets/selector_dias.dart     SelectorDias + diasDesdeTexto/textoDeDias ("Lun-Vie", "Lun, Mié, Vie").
   widgets/publicidad.dart        BarraPublicidad (dos carruseles, desde anchoBarraLateral), AnunciosEnLista (In-Feed en búsqueda,
                                  pantallas angostas; intercalarAnuncios) y EspacioPublicitario (carrusel: rota cada duracionAnuncio).

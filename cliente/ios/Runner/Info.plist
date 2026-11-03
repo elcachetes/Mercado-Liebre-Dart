@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Mercado Liebre usa la cámara para tomar las fotos de tus productos.</string>
+	<string>Mercado Liebre usa la cámara para tomar tu foto de perfil, el logo y la foto de tu tienda y las fotos de tus productos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Mercado Liebre abre tu galería para elegir las fotos de tus productos.</string>
+	<string>Mercado Liebre abre tu galería para elegir tu foto de perfil, el logo y la foto de tu tienda y las fotos de tus productos.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
