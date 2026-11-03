@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'almacen_s3.dart';
 import 'correo.dart';
 
 /// Parámetros de arranque leídos del entorno del proceso.
@@ -25,6 +26,7 @@ class Configuracion {
     required this.adminPassword,
     this.origenCors = '*',
     this.correo = const ConfiguracionCorreo(),
+    this.s3,
   });
 
   /// URL activa `postgres://usuario:contraseña@host:puerto/base`.
@@ -69,6 +71,9 @@ class Configuracion {
   /// SMTP para la verificación de correo y los reportes. Sin credenciales, no envía.
   final ConfiguracionCorreo correo;
 
+  /// Almacenamiento S3 (Garage) para las fotos. Null = se guardan en disco.
+  final ConfiguracionS3? s3;
+
   /// Copia con otra URL y otro modo SSL, conservando el resto.
   Configuracion conConexion({required String url, required bool usarSsl}) {
     return Configuracion(
@@ -85,6 +90,7 @@ class Configuracion {
       adminPassword: adminPassword,
       origenCors: origenCors,
       correo: correo,
+      s3: s3,
     );
   }
 
@@ -175,6 +181,7 @@ class Configuracion {
       adminPassword: valores['ADMIN_PASSWORD'] ?? '',
       origenCors: _textoOr(valores['CORS_ORIGEN'], '*'),
       correo: ConfiguracionCorreo.desdeEntorno(valores),
+      s3: ConfiguracionS3.desdeEntorno(valores),
     );
   }
 

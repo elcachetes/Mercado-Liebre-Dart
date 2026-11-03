@@ -6,6 +6,7 @@ import 'package:shelf/shelf_io.dart';
 import 'package:mercado_liebre_api/base_datos.dart';
 import 'package:mercado_liebre_api/configuracion.dart';
 import 'package:mercado_liebre_api/correo.dart';
+import 'package:mercado_liebre_api/medios.dart';
 import 'package:mercado_liebre_api/repositorio.dart';
 import 'package:mercado_liebre_api/rutas.dart';
 import 'package:mercado_liebre_api/token_sesion.dart';
@@ -13,7 +14,7 @@ import 'package:mercado_liebre_api/token_sesion.dart';
 /// Arranque de la API.
 ///
 /// Orden: leer entorno, abrir PostgreSQL (con reintentos), aplicar el esquema si está
-/// pedido, y escuchar HTTP. Los mensajes de consola no incluyen la URL
+/// pedido, y escuchar HTTP. Si hay S3, sube en segundo plano las fotos que queden en disco. Los mensajes de consola no incluyen la URL
 /// ni la contraseña de la base.
 ///
 /// Al recibir SIGTERM (Docker/Coolify al redesplegar) o SIGINT (Ctrl+C)
@@ -50,6 +51,23 @@ Future<void> main() async {
     // Solo direcciones, nunca la contraseña: sirve para revisar la configuración en los logs.
     final destino = correo.destinoReportes.isEmpty ? '(falta CORREO_REPORTES)' : correo.destinoReportes;
     stdout.writeln('Correo: envía como ${correo.direccionRemitente}; reportes a $destino.');
+  }
+
+  final s3 = configuracion.s3;
+  if (s3 == null) {
+    stdout.writeln('Fotos: en disco (${configuracion.rutaDatos}/medios). Define S3_* para usar Garage.');
+  } else {
+    // Solo host y bucket, nunca las llaves.
+    stdout.writeln('Fotos: S3 ${s3.endpoint.host}, bucket "${s3.bucket}".');
+    // En segundo plano: sube las fotos que quedaron en el volumen antes de usar S3.
+    final medios = Medios.desde(configuracion);
+    medios.migrarDiscoAS3().then((subidas) {
+      if (subidas > 0) {
+        stdout.writeln('Fotos: $subidas archivo(s) del disco migrados a S3.');
+      }
+    }).catchError((Object error) {
+      stderr.writeln('Fotos: la migración a S3 falló (${error.runtimeType}).');
+    }).whenComplete(() => medios.almacen?.cerrar());
   }
 
   _alApagar(() async {

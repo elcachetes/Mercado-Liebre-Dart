@@ -10,13 +10,22 @@ import 'package:image/image.dart' as img;
 /// resultado típico ronda 150–300 KB. La decodificación usa el motor de
 /// Flutter (rápido, funciona en web) y `package:image` solo codifica.
 /// Las zonas transparentes de un PNG quedan en blanco.
+///
+/// Usa [ui.instantiateImageCodecWithSize] y no `ImageDescriptor`: en web,
+/// `ImageDescriptor.width/height` lanzan `UnsupportedError`, y eso hacía que
+/// toda foto fallara con "No se pudo leer esa imagen" en el navegador.
 Future<Uint8List> comprimirFoto(Uint8List original, {int ladoMaximo = 1280, int calidad = 82}) async {
+  // instantiateImageCodecWithSize libera el buffer por su cuenta.
   final buffer = await ui.ImmutableBuffer.fromUint8List(original);
-  final descriptor = await ui.ImageDescriptor.encoded(buffer);
-  final escala = min(1.0, ladoMaximo / max(descriptor.width, descriptor.height));
-  final codec = await descriptor.instantiateCodec(
-    targetWidth: max(1, (descriptor.width * escala).round()),
-    targetHeight: max(1, (descriptor.height * escala).round()),
+  final codec = await ui.instantiateImageCodecWithSize(
+    buffer,
+    getTargetSize: (ancho, alto) {
+      final escala = min(1.0, ladoMaximo / max(ancho, alto));
+      return ui.TargetImageSize(
+        width: max(1, (ancho * escala).round()),
+        height: max(1, (alto * escala).round()),
+      );
+    },
   );
   final cuadro = await codec.getNextFrame();
   final ancho = cuadro.image.width;
@@ -24,8 +33,6 @@ Future<Uint8List> comprimirFoto(Uint8List original, {int ladoMaximo = 1280, int 
   final rgba = await cuadro.image.toByteData(format: ui.ImageByteFormat.rawRgba);
   cuadro.image.dispose();
   codec.dispose();
-  descriptor.dispose();
-  buffer.dispose();
   if (rgba == null) {
     throw const FormatException('No se pudo leer la imagen.');
   }

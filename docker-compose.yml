@@ -33,6 +33,13 @@ services:
       CORREO_REMITENTE: ${CORREO_REMITENTE:-}
       CORREO_REPORTES: ${CORREO_REPORTES:-miguelsoto@mercadoliebre.shop}
       URL_PUBLICA: ${URL_PUBLICA:-}
+      # Fotos en Garage (S3). Sin estas variables se guardan en el volumen datos_api.
+      # S3_SECRET_KEY va solo en Coolify, marcada como secreta.
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-}
+      S3_REGION: ${S3_REGION:-garage}
       # Puerto HTTP de la API. Debe coincidir con "api:8080" en cliente/nginx.conf.
       PORT: "8080"
       APLICAR_ESQUEMA: "true"

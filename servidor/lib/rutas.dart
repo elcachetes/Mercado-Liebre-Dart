@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:postgres/postgres.dart' show ServerException;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
+import 'almacen_s3.dart';
 import 'apariencia.dart';
 import 'configuracion.dart';
 import 'correo.dart';
@@ -34,7 +36,7 @@ const Set<String> _rolesModeracion = {'moderador', 'admin'};
 Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? correo}) {
   final router = Router();
   final sesion = _Sesion(repositorio, tokens);
-  final medios = Medios(Directory('${repositorio.baseDatos.configuracion.rutaDatos}/medios'));
+  final medios = Medios.desde(repositorio.baseDatos.configuracion);
   final cartero = correo ?? Correo(const ConfiguracionCorreo());
   // Llave distinta a la de sesión: un token de sesión no verifica correos y viceversa.
   final tokensCorreo = TokenSesion('${tokens.llave}|verificar-correo', vigencia: const Duration(hours: 48));
@@ -98,6 +100,9 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
       return await medios.guardar(cuerpo['nombre']?.toString() ?? 'foto.jpg', datos);
     } on FormatException catch (error) {
       throw ErrorApi(400, error.message);
+    } on ErrorAlmacen catch (error) {
+      stderr.writeln('No se pudo guardar una imagen en S3: ${error.message}');
+      throw ErrorApi(503, 'No se pudo guardar la imagen. Intenta de nuevo en un momento.');
     }
   }
 
@@ -740,13 +745,19 @@ Router construirRutas(Repositorio repositorio, TokenSesion tokens, {Correo? corr
   });
 
   router.get('/medios/<archivo>', (Request request, String archivo) async {
-    final file = medios.buscar(archivo);
-    if (file == null) {
+    final ({Uint8List bytes, String tipo})? imagen;
+    try {
+      imagen = await medios.leer(archivo);
+    } on ErrorAlmacen catch (error) {
+      stderr.writeln('No se pudo leer $archivo de S3: ${error.message}');
+      throw ErrorApi(503, 'La imagen no está disponible por ahora.');
+    }
+    if (imagen == null) {
       throw ErrorApi(404, 'No se encontró la imagen.');
     }
     // El nombre es aleatorio y nunca se reutiliza: el navegador puede guardarlo para siempre.
-    return Response.ok(file.openRead(), headers: {
-      'content-type': medios.tipo(archivo),
+    return Response.ok(imagen.bytes, headers: {
+      'content-type': imagen.tipo,
       'cache-control': 'public, max-age=31536000, immutable',
     });
   });

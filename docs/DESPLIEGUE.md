@@ -129,6 +129,31 @@ Marca `DATABASE_URL`, `APP_SECRET_KEY` y `ADMIN_PASSWORD` como
 por defecto. Sin `SMTP_USUARIO`/`SMTP_PASSWORD` la API arranca, avisa en los
 logs y responde 503 al registrar el correo o enviar un reporte.
 
+**Fotos en Garage (S3).** PostgreSQL guarda los datos y solo la URL de cada
+foto (`/medios/<archivo>`); los bytes viven como objetos en un bucket de Garage
+(`medios/<archivo>`) y la API los sirve en `/medios/…`, así que el bucket no
+necesita ser público. Crea el bucket y una llave una sola vez, desde la
+terminal del contenedor de Garage en Coolify:
+
+```bash
+garage bucket create mercado-liebre
+garage key create mercado-liebre-api          # muestra Key ID y Secret key
+garage bucket allow --read --write --owner mercado-liebre --key mercado-liebre-api
+```
+
+| Variable        | Valor                                                                  |
+|-----------------|------------------------------------------------------------------------|
+| `S3_ENDPOINT`   | La *S3 API URL* de Garage (`https://s3-….sslip.io`)                    |
+| `S3_BUCKET`     | `mercado-liebre`                                                       |
+| `S3_ACCESS_KEY` | El *Key ID* (`GK…`)                                                     |
+| `S3_SECRET_KEY` | La *Secret key* (**secreta**)                                          |
+| `S3_REGION`     | Opcional; `garage` por defecto (`s3_region` de `garage.toml`)          |
+
+Sin estas variables las fotos se guardan en el volumen `datos_api`. Al arrancar
+con S3, la API sube en segundo plano las fotos que queden en el volumen y borra
+cada copia local ya subida (log: `Fotos: N archivo(s) del disco migrados a S3`);
+mientras tanto las sigue sirviendo desde el disco.
+
 > **Nunca escribas `DATABASE_URL` en `docker-compose.yml`** ni en otro archivo
 > del repositorio: lleva la contraseña. Si llegó a subirse a Git, cambia la
 > contraseña en el recurso PostgreSQL y actualiza `DATABASE_URL` aquí.
@@ -198,8 +223,8 @@ docker exec <uuid-del-recurso> pg_dump -U postgres -d postgres -Fc > respaldo_$(
 docker exec -i <uuid-del-recurso> pg_restore -U postgres -d postgres --clean < respaldo_2026-01-01.dump
 ```
 
-Las fotos subidas viven en el volumen `datos_api`, que no entra en los
-respaldos de la base. Respáldalo con
+Las fotos viven en el bucket de Garage (o, sin S3, en el volumen `datos_api`),
+que no entra en los respaldos de la base. Sin S3, respalda el volumen con
 `docker run --rm -v NOMBRE_VOLUMEN:/d -v /root/respaldos:/r alpine tar czf /r/medios_$(date +%F).tgz -C /d .`
 
 ## 7. Problemas comunes
@@ -214,6 +239,8 @@ respaldos de la base. Respáldalo con
 | La API ignora el `DATABASE_URL` nuevo | Un admin guardó otra conexión desde el panel (`/app/datos/conexion.json`, que tiene prioridad). Usa *Restaurar la del entorno* en el panel o borra ese archivo y reinicia `api`. |
 | 502 Bad Gateway en `/api/...` y `/salud` | `api` no está sana o no escucha en 8080. Revisa sus logs; `web` reenvía a `api:8080`, así que `PORT` debe ser `8080`. |
 | `Permission denied` al subir fotos tras actualizar | El volumen `datos_api` se creó cuando la API corría como root. Una sola vez: `docker run --rm -v NOMBRE_VOLUMEN_DATOS:/d alpine chown -R 10001 /d` y reinicia `api`. |
+| Subir una foto responde "No se pudo guardar la imagen"; en logs `PUT … respondió 403` | La llave no tiene permiso en el bucket o `S3_REGION` no coincide con `s3_region` de Garage. Repite `garage bucket allow …` (4.1). |
+| `api` reinicia con `Configuración S3 incompleta: falta …` | Definiste solo algunas variables `S3_*`. Pon las cuatro o ninguna. |
 | La app muestra la versión vieja tras desplegar | Recarga forzada (Ctrl+Shift+R). `index.html`, `main.dart.js` y `sw.js` se sirven con `no-cache` y el service worker pide primero a la red, así que basta una recarga. |
 | "¿Olvidaste tu contraseña?" responde que el correo no está configurado | Faltan `SMTP_USUARIO`/`SMTP_PASSWORD`. Mientras tanto el admin puede fijar contraseñas en *Administración → Usuarios → Restablecer contraseña*. |
 | El certificado HTTPS no se emite | El DNS aún no apunta al servidor, o los puertos 80/443 están cerrados. |

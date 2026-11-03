@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show Uint8List, defaultTargetPlatform;
+import 'package:flutter/foundation.dart' show Uint8List, debugPrint, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -35,7 +35,9 @@ Future<Uint8List?> leerFoto(BuildContext context, ImageSource origen, {int ladoM
   }
   try {
     return await comprimirFoto(bytes, ladoMaximo: ladoMaximo);
-  } catch (_) {
+  } catch (error) {
+    // Formato que el navegador o el motor no decodifican (p. ej. HEIC fuera de Safari).
+    debugPrint('comprimirFoto falló: $error');
     if (context.mounted) {
       mostrarAviso(context, 'No se pudo leer esa imagen. Prueba con una foto JPG o PNG.');
     }

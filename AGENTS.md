@@ -32,7 +32,9 @@ servidor/
   lib/apariencia.dart    Claves de apariencia editables y sus valores por defecto. Límites de publicidad (2 secciones × 3).
   lib/contrasena.dart    Hash PBKDF2 (compatible con la app Python anterior; no cambiar iteraciones).
   lib/token_sesion.dart  Token HS256 de 7 días.
-  lib/medios.dart        Fotos subidas por el admin en DATOS_PATH/medios.
+  lib/medios.dart        Fotos subidas (perfil, negocio, productos, publicidad). Con S3_* van al bucket de Garage;
+                         sin S3, a DATOS_PATH/medios. Siempre se sirven en /medios/<archivo>.
+  lib/almacen_s3.dart    Cliente S3 mínimo (PUT/GET/DELETE) con firma SigV4 y ConfiguracionS3 (variables S3_*).
   lib/correo.dart        SMTP (Zoho): verificación, restablecimiento de contraseña y reportes. Config en ConfiguracionCorreo.
   lib/reportes.dart      Validación de POST /api/reportes (contacto, descripción, foto).
 cliente/lib/
@@ -73,7 +75,8 @@ cliente/lib/
   widgets/instalar_app.dart      BotonInstalar (barra roja), InvitacionInstalar (Inicio en celular), instalarApp.
   widgets/reporte_dialogo.dart   mostrarReporte: formulario de fallas, quejas y sugerencias.
   widgets/verificacion.dart      AvisoVerificacion: "verifica tu correo" con reenviar.
-  servicios/imagenes.dart        comprimirFoto: reduce fotos a 1280 px JPEG antes de subirlas.
+  servicios/imagenes.dart        comprimirFoto: reduce fotos a 1280 px JPEG antes de subirlas. Usa
+                                 instantiateImageCodecWithSize: ImageDescriptor.width/height no existen en web.
   pantallas/busqueda_pantalla.dart  Incluye OrdenBusqueda y ordenarResultados (orden en el cliente).
   tema/tema_liebre.dart  ColoresLiebre (marca), Espacio (separaciones), temaLiebre().
   mapa/puntos_campus.dart  Geometría de cada edificio sobre assets/mapa_plantel.jpg (1024×549).
@@ -136,6 +139,7 @@ herramientas/            Scripts de mantenimiento (generar_iconos.py).
 | Regla del contacto de un reporte                  | `Reporte._contactoValido` (servidor) y `validarContactoReporte` (cliente). |
 | Largo de la descripción de un reporte (1000)      | `Reporte.maximoDescripcion` y `maximoDescripcionReporte`.               |
 | El dibujo del icono                               | Edita `cliente/assets/icono/liebre.svg` y corre `python herramientas/generar_iconos.py` (necesita Edge y Pillow). Regenera web, Android, iOS, Windows y el logo interno. |
+| Dónde se guardan las fotos (disco o S3)           | Solo `Medios` y `AlmacenS3`. La base guarda siempre `/medios/<archivo>`; no cambies ese formato. |
 | `iteracionesContrasena`                           | **No lo cambies**: invalidaría todas las contraseñas guardadas.         |
 
 ## Recetas
@@ -182,7 +186,7 @@ Usa `ListView` con `padding: EdgeInsets.all(Espacio.l)`, títulos con
 - `/medios/<archivo>` valida el nombre con una expresión regular (sin `/` ni `..`).
 - La API nunca imprime `DATABASE_URL` ni contraseñas en logs.
 - `.env` y `datos/` están en `.gitignore` y `.dockerignore`.
-- `SMTP_PASSWORD` solo vive en el entorno (Coolify). Nunca en el repositorio ni en logs.
+- `SMTP_PASSWORD` y `S3_SECRET_KEY` solo viven en el entorno (Coolify). Nunca en el repositorio ni en logs.
 - El enlace de verificación se firma con una llave derivada (`APP_SECRET_KEY|verificar-correo`):
   un token de sesión no sirve para verificar ni viceversa.
 - Las rutas que envían correo tienen límite en memoria (`_Limite` en `rutas.dart`).
